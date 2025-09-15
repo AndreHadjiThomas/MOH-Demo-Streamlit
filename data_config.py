@@ -1,44 +1,55 @@
 from pathlib import Path
 
-# Root where your data repo is located locally (adjust as needed)
-DATA_ROOT = Path(".")
+# === All data files live in the repo root ===
+ROOT = Path(".")
 
-# Optional: a base URL to your repo for clickable links in the UI.
-# Examples:
-#   raw:  "https://raw.githubusercontent.com/<user>/<repo>/main"
-#   blob: "https://github.com/<user>/<repo>/blob/main"
-GIT_BASE_URL = ""  # leave empty to disable links
+# Optional: base URL to your git repo so the UI can link each chart/table
+#   e.g. "https://github.com/<user>/<repo>/blob/main"
+# Leave empty "" to disable links.
+GIT_BASE_URL = ""
 
-# H3 grid config
+# H3 grid config (used only if you don't provide a CSV list)
 RES = 6
 CENTER = dict(lat=37.75, lon=22.41)
 
-# Land cover (GLC-FCS30D + DW) GeoJSONs
-LANDCOVER_DIR = DATA_ROOT / "MOH_Land_Cover"
+# --- File locations in MAIN DIR ---
+# Biodiversity metrics (single file)
+BIODIVERSITY_METRICS = ROOT / "Biodiversity_Metrics_By_H3.csv"
 
-# Biodiversity metrics (single CSV)
-BIODIVERSITY_METRICS = DATA_ROOT / "Biodiversity_Metrics_By_H3.csv"
+# Species pools (birds / invasive / sensitive)
+# pattern: species_pool_{h3}_{position}.csv
+SPECIES_FILE = lambda h3, pos: ROOT / f"species_pool_{h3}_{pos}.csv"
 
-# Species harmonized pools (per hex)
-SPECIES_DIR = DATA_ROOT 
+# Land-use / activities per hex
+# pattern: Land_use_{h3}_{position}.csv
+LAND_USE_FILE = lambda h3, pos: ROOT / f"Land_use_{h3}_{pos}.csv"
 
-# Activities / Land use (per hex)
-LAND_USE_DIR = DATA_ROOT 
+# Protected ecosystems / environmental risks per position
+# pattern: environmental_risks_{position}.csv
+ENV_RISK_FILE = lambda pos: ROOT / f"environmental_risks_{pos}.csv"
 
-# Environmental risks (per position only)
-ENV_RISK_DIR = DATA_ROOT 
+# Aqueduct (central only)
+# pattern: aqueduct_v4_{center_h3}.csv
+AQUEDUCT_FILE = lambda center_h3: ROOT / f"aqueduct_v4_{center_h3}.csv"
 
-# Aqueduct (center hex only)
-AQUEDUCT_DIR = DATA_ROOT 
+# Land cover (GLC-FCS30D + DW) geojsons in MAIN DIR
+# pattern: <h3>_<pos>_<year>_(glc_fcs30d|landcover).geojson
+LANDCOVER_GLOB = "*.geojson"
 
-# Eco-Integrity files
-ECO_DIR = DATA_ROOT
-ECO_FILES = dict(
-    high_integrity=ECO_DIR,
-    rapid_decline=ECO_DIR,
-    corridors=ECO_DIR,
-    avg_ffi=ECO_DIR,
-)
+# EcoIntegrity (all in MAIN DIR)
+#   high_integrity_{h3}_{position}_2022.csv
+#   rapid_decline_{h3}_{position}_2005_2022.csv
+#   corridors_{h3}_{position}_2022.csv
+#   avg_ffi_{h3}_{position}.csv
+ECO_FILE = lambda stem: ROOT / f"{stem}.csv"
+
+# Optional pre-baked list of 7 H3 cells (center + N1..N6) in main dir:
+# columns: position,h3_index
+H3_LIST_FILE = ROOT / "h3_res7_center_plus_neighbors_minimal.csv"
+
+# Slider bounds
+YEAR_MIN, YEAR_MAX = 2005, 2025
+
 
 # Slider bounds
 YEAR_MIN, YEAR_MAX = 2005, 2025
