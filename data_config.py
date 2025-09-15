@@ -1,7 +1,7 @@
 from pathlib import Path
 
 # Root where your data repo is located locally (adjust as needed)
-DATA_ROOT = Path("./data")
+DATA_ROOT = Path(".")
 
 # Optional: a base URL to your repo for clickable links in the UI.
 # Examples:
