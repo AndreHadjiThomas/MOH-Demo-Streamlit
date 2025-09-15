@@ -11,10 +11,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 import geopandas as gpd  # needed for land cover
 
-from .data_config import (
+# ✅ use non-relative imports and only the names we actually need
+from data_config import (
     YEAR_MIN, YEAR_MAX, GIT_BASE_URL
 )
-from .data_loaders import (
+from data_loaders import (
     get_cells_df, hex_outline_gdf, h3_polygon_lonlat, discover_landcover, to_git_url,
     load_biodiv_metrics, load_birds_for_hex, load_invasive_sensitive,
     load_land_use, load_environmental_risks, load_aqueduct_center,
