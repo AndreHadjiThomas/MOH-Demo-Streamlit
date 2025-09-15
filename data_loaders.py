@@ -35,7 +35,7 @@ def h3_polygon_lonlat(h: str) -> List[List[float]]:
 def hex_outline_gdf(h3_indices: List[str]) -> gpd.GeoDataFrame:
     recs = []
     for hidx in h3_indices:
-        ring = h3.cell_to_boundary(hidx, True)
+        ring = h3.cell_to_boundary(hidx)
         poly = Polygon([(lon, lat) for (lat, lon) in ring])
         recs.append({"h3_index":hidx, "geometry":poly})
     return gpd.GeoDataFrame(recs, crs="EPSG:4326")
