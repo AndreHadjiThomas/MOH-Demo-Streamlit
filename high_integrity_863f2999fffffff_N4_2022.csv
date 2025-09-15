@@ -1,0 +1,2 @@
+H3_Index,Position,Category,Polygon_ID_old,Ecosystem_2005,GLC_Class_2005,FFI_2005,Centroid_2005,Distance_2005,Polygon_ID_new,Ecosystem_2022,GLC_Class_2022,FFI_2022,Centroid_2022,Distance_2022
+863f2999fffffff,N4,HighIntegrity_2022,1,Shrubland,120,0.44253514812789785,"(np.float64(37.69428311259142), np.float64(22.44028232590348))",0.07322300000984332,1,Shrubland,120,0.42099057061747414,"(np.float64(37.69411359942312), np.float64(22.440417983819607))",0.05282675074390111

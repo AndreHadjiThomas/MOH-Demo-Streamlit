@@ -1,0 +1,2 @@
+H3_Index,Position,Category,Polygon_ID_old,Ecosystem_2005,GLC_Class_2005,FFI_2005,Centroid_2005,Distance_2005,Polygon_ID_new,Ecosystem_2022,GLC_Class_2022,FFI_2022,Centroid_2022,Distance_2022
+863f299a7ffffff,N1,HighIntegrity_2022,25,Shrubland,120,0.0,"(np.float64(37.84488434277448), np.float64(22.4358561639654))",3.662464792972615,25,Closed EV needleleaf,72,0.6174565188407095,"(np.float64(37.812448726007965), np.float64(22.415086181063003))",0.41025530230683444
