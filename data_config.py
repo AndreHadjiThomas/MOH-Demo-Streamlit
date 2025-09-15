@@ -17,27 +17,27 @@ CENTER = dict(lat=37.75, lon=22.41)
 LANDCOVER_DIR = DATA_ROOT / "MOH_Land_Cover"
 
 # Biodiversity metrics (single CSV)
-BIODIVERSITY_METRICS = DATA_ROOT / "Biomet/MOH/Biodiversity_Metrics_By_H3.csv"
+BIODIVERSITY_METRICS = DATA_ROOT / "Biodiversity_Metrics_By_H3.csv"
 
 # Species harmonized pools (per hex)
-SPECIES_DIR = DATA_ROOT / "Biomet/MOH/Species_Harmonized"
+SPECIES_DIR = DATA_ROOT 
 
 # Activities / Land use (per hex)
-LAND_USE_DIR = DATA_ROOT / "Biomet/MOH"
+LAND_USE_DIR = DATA_ROOT 
 
 # Environmental risks (per position only)
-ENV_RISK_DIR = DATA_ROOT / "Biomet/MOH"
+ENV_RISK_DIR = DATA_ROOT 
 
 # Aqueduct (center hex only)
-AQUEDUCT_DIR = DATA_ROOT / "Biomet/MOH"
+AQUEDUCT_DIR = DATA_ROOT 
 
 # Eco-Integrity files
-ECO_DIR = DATA_ROOT / "Biomet/MOH/EcoIntegrity"
+ECO_DIR = DATA_ROOT
 ECO_FILES = dict(
-    high_integrity=ECO_DIR / "high_integrity",
-    rapid_decline=ECO_DIR / "rapid_decline",
-    corridors=ECO_DIR / "corridors",
-    avg_ffi=ECO_DIR / "avg_ffi",
+    high_integrity=ECO_DIR,
+    rapid_decline=ECO_DIR,
+    corridors=ECO_DIR,
+    avg_ffi=ECO_DIR,
 )
 
 # Slider bounds
