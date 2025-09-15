@@ -1,0 +1,46 @@
+H3_Index,Position,CanonicalName,QueriedName,GBIF_SpeciesKey,MatchedRank,Kingdom,Phylum,Class,Order,Family,Genus,In_GBIF,In_Natura,Invasive,GBIF_Total_Observations,REF_SPGROUP,ABUNDANCE_CATEGORY,LOWERBOUND,UPPERBOUND,COUNTING_UNIT,Natura_SiteCodes,Natura_SiteNames
+863f29987ffffff,CENTER,Coronella austriaca,Coronella austriaca,,,,,,,,,0,1,0,0,nan,R,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Thorectes,"Thorectes Mulsant, 1842",1070775.0,GENUS,Animalia,Arthropoda,Insecta,Coleoptera,Geotrupidae,Thorectes,1,0,0,1,,,,,,,
+863f29987ffffff,CENTER,Hydrobius fuscipes,Hydrobius fuscipes,4988130.0,SPECIES,Animalia,Arthropoda,Insecta,Coleoptera,Hydrophilidae,Hydrobius,1,0,0,2,,,,,,,
+863f29987ffffff,CENTER,Bufo bufo,Bufo bufo,5217160.0,SPECIES,Animalia,Chordata,Amphibia,Anura,Bufonidae,Bufo,0,1,0,0,nan,R,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Bufotes viridis,Bufotes viridis,9529916.0,SPECIES,Animalia,Chordata,Amphibia,Anura,Bufonidae,Bufotes,0,1,0,0,nan,R,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Rana graeca,Rana graeca,2426795.0,SPECIES,Animalia,Chordata,Amphibia,Anura,Ranidae,Rana,0,1,0,0,nan,C,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Columba palumbus palumbus,Columba palumbus palumbus,9040795.0,SUBSPECIES,Animalia,Chordata,Aves,Columbiformes,Columbidae,Columba,0,1,0,0,nan,C,,,nan,GR2510004,ORI ARTEMISIO KAI LYRKEIO
+863f29987ffffff,CENTER,Crex crex,Crex crex,4408498.0,SPECIES,Animalia,Chordata,Aves,Gruiformes,Rallidae,Crex,1,0,0,1,,,,,,,
+863f29987ffffff,CENTER,Canis aureus,Canis aureus,5219219.0,SPECIES,Animalia,Chordata,Mammalia,Carnivora,Canidae,Canis,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Hypsugo savii,Hypsugo savii,7261861.0,SPECIES,Animalia,Chordata,Mammalia,Chiroptera,Vespertilionidae,Hypsugo,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Pipistrellus pipistrellus,Pipistrellus pipistrellus,5218465.0,SPECIES,Animalia,Chordata,Mammalia,Chiroptera,Vespertilionidae,Pipistrellus,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Dryomys nitedula,Dryomys nitedula,2439688.0,SPECIES,Animalia,Chordata,Mammalia,Rodentia,Gliridae,Dryomys,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Algyroides moreoticus,Algyroides moreoticus,2469367.0,SPECIES,Animalia,Chordata,Squamata,,Lacertidae,Algyroides,0,1,0,0,nan,R,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Hellenolacerta graeca,Hellenolacerta graeca,5789567.0,SPECIES,Animalia,Chordata,Squamata,,Lacertidae,Hellenolacerta,0,1,0,0,nan,C,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Lacerta trilineata,Lacerta trilineata,6159197.0,SPECIES,Animalia,Chordata,Squamata,,Lacertidae,Lacerta,0,1,0,0,nan,C,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Podarcis muralis,Podarcis muralis,2469188.0,SPECIES,Animalia,Chordata,Squamata,,Lacertidae,Podarcis,0,1,0,0,nan,C,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Podarcis peloponnesiacus,Podarcis peloponnesiaca,2469022.0,SPECIES,Animalia,Chordata,Squamata,,Lacertidae,Podarcis,0,1,0,0,nan,C,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Vipera ammodytes,Vipera ammodytes,2444308.0,SPECIES,Animalia,Chordata,Squamata,,Viperidae,Vipera,0,1,0,0,nan,R,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Fritillaria graeca,Fritillaria graeca,5300514.0,SPECIES,Plantae,Tracheophyta,Liliopsida,Liliales,Liliaceae,Fritillaria,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Lilium chalcedonicum,Lilium chalcedonicum,2753035.0,SPECIES,Plantae,Tracheophyta,Liliopsida,Liliales,Liliaceae,Lilium,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Tulipa orphanidea,Tulipa orphanidea,5299398.0,SPECIES,Plantae,Tracheophyta,Liliopsida,Liliales,Liliaceae,Tulipa,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Poa thessala,Poa thessala,4108833.0,SPECIES,Plantae,Tracheophyta,Liliopsida,Poales,Poaceae,Poa,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Peucedanum longifolium,Peucedanum longifolium,6026367.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Apiales,Apiaceae,Peucedanum,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Achillea umbellata,Achillea umbellata,3120236.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Asterales,Asteraceae,Achillea,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Anthemis laconica,Anthemis laconica,3122588.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Asterales,Asteraceae,Anthemis,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Centaurea raphanina mixta,Centaurea raphanina ssp. mixta,6076500.0,SUBSPECIES,Plantae,Tracheophyta,Magnoliopsida,Asterales,Asteraceae,Centaurea,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Aurinia moreana,Aurinia moreana,5377783.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Brassicales,Brassicaceae,Aurinia,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Draba lacaitae,Draba lacaitae,3049597.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Brassicales,Brassicaceae,Draba,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Erysimum pectinatum,Erysimum pectinatum,3048171.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Brassicales,Brassicaceae,Erysimum,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Thlaspi graecum,Thlaspi graecum,3045322.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Brassicales,Brassicaceae,Noccaea,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Arenaria filicaulis graeca,Arenaria filicaulis ssp. graeca,10647819.0,SUBSPECIES,Plantae,Tracheophyta,Magnoliopsida,Caryophyllales,Caryophyllaceae,Arenaria,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Cerastium candidissimum,Cerastium candidissimum,3812924.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Caryophyllales,Caryophyllaceae,Cerastium,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Minuartia stellata,Minuartia stellata,3811159.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Caryophyllales,Caryophyllaceae,Mcneillia,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Silene auriculata,Silene auriculata,5585329.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Caryophyllales,Caryophyllaceae,Silene,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Valeriana olenaea,Valeriana olenaea,4094791.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Dipsacales,Caprifoliaceae,Valeriana,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Galium peloponnesiacum,Galium peloponnesiacum,2913268.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Gentianales,Rubiaceae,Galium,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Asperula taygetea,Asperula taygetea,2916809.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Gentianales,Rubiaceae,Hexaphylla,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Sideritis clandestina cyllenea,Sideritis clandestina ssp. cyllenea,3891827.0,SUBSPECIES,Plantae,Tracheophyta,Magnoliopsida,Lamiales,Lamiaceae,Sideritis,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Thymus leucotrichus,Thymus leucotrichus,7307117.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Lamiales,Lamiaceae,Thymus,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Scrophularia taygetea,Scrophularia taygetea,3735554.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Lamiales,Scrophulariaceae,Scrophularia,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Adonis cyllenea,Adonis cyllenea,5616505.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Ranunculales,Ranunculaceae,Adonis,0,1,0,0,nan,V,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Rhamnus sibthorpiana,Rhamnus sibthorpianus,3874761.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Rosales,Rhamnaceae,Atadinus,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Crataegus pycnoloba,Crataegus pycnoloba,3013789.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Rosales,Rosaceae,Crataegus,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS
+863f29987ffffff,CENTER,Prunus prostrata,Prunus prostrata,3021265.0,SPECIES,Plantae,Tracheophyta,Magnoliopsida,Rosales,Rosaceae,Prunus,1,0,0,1,,,,,,,
+863f29987ffffff,CENTER,Abies cephalonica,Abies cephalonica,2685326.0,SPECIES,Plantae,Tracheophyta,Pinopsida,Pinales,Pinaceae,Abies,0,1,0,0,nan,P,,,nan,GR2530004,OROS OLIGYRTOS

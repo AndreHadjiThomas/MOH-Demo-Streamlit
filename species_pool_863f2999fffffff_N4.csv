@@ -1,0 +1,14 @@
+H3_Index,Position,CanonicalName,QueriedName,GBIF_SpeciesKey,MatchedRank,Kingdom,Phylum,Class,Order,Family,Genus,In_GBIF,In_Natura,Invasive,GBIF_Total_Observations,REF_SPGROUP,ABUNDANCE_CATEGORY,LOWERBOUND,UPPERBOUND,COUNTING_UNIT,Natura_SiteCodes,Natura_SiteNames
+863f2999fffffff,N4,BOLD:AAA7371,BOLD:AAA7371,10409877,UNRANKED,Animalia,Arthropoda,Insecta,Lepidoptera,Nymphalidae,Melitaea,1,0,0,1,,,,,,,
+863f2999fffffff,N4,Melitaea,"Melitaea Fabricius, 1807",9042695,GENUS,Animalia,Arthropoda,Insecta,Lepidoptera,Nymphalidae,Melitaea,1,0,0,1,,,,,,,
+863f2999fffffff,N4,Circus aeruginosus,Circus aeruginosus,2480482,SPECIES,Animalia,Chordata,Aves,Accipitriformes,Accipitridae,Circus,1,0,0,1,,,,,,,
+863f2999fffffff,N4,Columba palumbus palumbus,Columba palumbus palumbus,9040795,SUBSPECIES,Animalia,Chordata,Aves,Columbiformes,Columbidae,Columba,0,1,0,0,nan,C,,,nan,GR2510004,ORI ARTEMISIO KAI LYRKEIO
+863f2999fffffff,N4,Falco tinnunculus,Falco tinnunculus,9616058,SPECIES,Animalia,Chordata,Aves,Falconiformes,Falconidae,Falco,1,0,0,4,,,,,,,
+863f2999fffffff,N4,Alectoris graeca,Alectoris graeca,2474055,SPECIES,Animalia,Chordata,Aves,Galliformes,Phasianidae,Alectoris,1,0,0,5,,,,,,,
+863f2999fffffff,N4,Corvus corax,Corvus corax,2482492,SPECIES,Animalia,Chordata,Aves,Passeriformes,Corvidae,Corvus,1,0,0,3,,,,,,,
+863f2999fffffff,N4,Emberiza cia,Emberiza cia,2491498,SPECIES,Animalia,Chordata,Aves,Passeriformes,Emberizidae,Emberiza,1,0,0,6,,,,,,,
+863f2999fffffff,N4,Emberiza cirlus,Emberiza cirlus,7626513,SPECIES,Animalia,Chordata,Aves,Passeriformes,Emberizidae,Emberiza,1,0,0,5,,,,,,,
+863f2999fffffff,N4,Anthus campestris,Anthus campestris,2490274,SPECIES,Animalia,Chordata,Aves,Passeriformes,Motacillidae,Anthus,1,0,0,1,,,,,,,
+863f2999fffffff,N4,Phoenicurus ochruros,Phoenicurus ochruros,5739315,SPECIES,Animalia,Chordata,Aves,Passeriformes,Muscicapidae,Phoenicurus,1,0,0,1,,,,,,,
+863f2999fffffff,N4,Sitta neumayer,Sitta neumayer,2484890,SPECIES,Animalia,Chordata,Aves,Passeriformes,Sittidae,Sitta,1,0,0,4,,,,,,,
+863f2999fffffff,N4,Canis aureus,Canis aureus,5219219,SPECIES,Animalia,Chordata,Mammalia,Carnivora,Canidae,Canis,1,0,0,1,,,,,,,

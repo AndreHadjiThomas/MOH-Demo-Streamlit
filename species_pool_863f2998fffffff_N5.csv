@@ -1,0 +1,4 @@
+H3_Index,Position,CanonicalName,QueriedName,GBIF_SpeciesKey,MatchedRank,Kingdom,Phylum,Class,Order,Family,Genus,In_GBIF,In_Natura,Invasive,GBIF_Total_Observations,REF_SPGROUP,ABUNDANCE_CATEGORY,LOWERBOUND,UPPERBOUND,COUNTING_UNIT,Natura_SiteCodes,Natura_SiteNames
+863f2998fffffff,N5,Columba palumbus palumbus,Columba palumbus palumbus,9040795,SUBSPECIES,Animalia,Chordata,Aves,Columbiformes,Columbidae,Columba,0,1,0,0,nan,C,,,nan,GR2510004,ORI ARTEMISIO KAI LYRKEIO
+863f2998fffffff,N5,Iris unguicularis,Iris unguicularis,5298051,SPECIES,Plantae,Tracheophyta,Liliopsida,Asparagales,Iridaceae,Iris,1,0,0,1,,,,,,,
+863f2998fffffff,N5,Melica ciliata,Melica ciliata,2703124,SPECIES,Plantae,Tracheophyta,Liliopsida,Poales,Poaceae,Melica,1,0,0,1,,,,,,,
