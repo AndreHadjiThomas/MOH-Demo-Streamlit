@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,7 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 import h3
 
-from .data_config import (
+from data_config import (
     ROOT, GIT_BASE_URL, RES, CENTER, H3_LIST_FILE,
     BIODIVERSITY_METRICS, SPECIES_FILE, LAND_USE_FILE, ENV_RISK_FILE,
     AQUEDUCT_FILE, LANDCOVER_GLOB, ECO_FILE
@@ -17,12 +17,10 @@ from .data_config import (
 
 # ---------- H3 helpers ----------
 def get_cells_df() -> pd.DataFrame:
-    """Return DataFrame with ['position','h3_index'] for center+6 neighbors."""
     if H3_LIST_FILE.exists():
         df = pd.read_csv(H3_LIST_FILE)
         df["h3_index"] = df["h3_index"].astype(str)
         return df[["position","h3_index"]].copy()
-
     center = h3.latlng_to_cell(CENTER["lat"], CENTER["lon"], RES)
     neigh = list(h3.grid_ring(center, 1))
     rows = [{"position":"CENTER","h3_index":center}]
@@ -31,7 +29,7 @@ def get_cells_df() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 def h3_polygon_lonlat(h: str) -> List[List[float]]:
-    ring = h3.cell_to_boundary(h, True)  # [(lat,lon),...]
+    ring = h3.cell_to_boundary(h, True)
     return [[lon, lat] for (lat, lon) in ring] + [[ring[0][1], ring[0][0]]]
 
 def hex_outline_gdf(h3_indices: List[str]) -> gpd.GeoDataFrame:
@@ -47,14 +45,13 @@ def to_git_url(local_path: Path) -> Optional[str]:
     if not GIT_BASE_URL:
         return None
     base = GIT_BASE_URL.rstrip("/")
-    # Path shown relative to repo root
     try:
         rel = local_path.relative_to(Path("."))
     except Exception:
         rel = local_path
     return f"{base}/{rel.as_posix()}"
 
-# ---------- Land cover discovery (in MAIN DIR) ----------
+# ---------- Land cover discovery (main dir) ----------
 LC_PAT = re.compile(r"^(?P<h3>[0-9a-f]+)_(?P<pos>[A-Za-z0-9_]+)_(?P<year>\d{4})_(?P<tag>glc_fcs30d|landcover)\.geojson$", re.I)
 
 def discover_landcover() -> pd.DataFrame:
@@ -91,7 +88,6 @@ def load_birds_for_hex(h3_index: str, position: str):
     if not f.exists():
         return pd.DataFrame(columns=["Species","Status","Count"]), None
     df = pd.read_csv(f)
-    # Try to isolate birds
     name_col = "CanonicalName" if "CanonicalName" in df.columns else df.columns[0]
     birds = pd.DataFrame()
     for cand in ["Group","group","Class","class","Order","order"]:
@@ -114,12 +110,10 @@ def load_invasive_sensitive(h3_index: str, position: str):
         return inv, sens, None
     df = pd.read_csv(f)
     name_col = "CanonicalName" if "CanonicalName" in df.columns else df.columns[0]
-    # Invasive
     for cand in ["Invasive","Is_Invasive","is_invasive"]:
         if cand in df.columns:
             inv = df[df[cand]==1][name_col].to_frame("Species")
             break
-    # Sensitive (VU/EN/CR)
     for cand in ["IUCN","iucn_status","iucnRedListCategory","Status"]:
         if cand in df.columns:
             sens = df[df[cand].astype(str).str.upper().isin(["VU","EN","CR"])][[name_col, cand]]
@@ -190,7 +184,7 @@ def load_aqueduct_center(center_h3: str):
         rows.append({"dimension": col, "score": score, "label": lbl})
     return pd.DataFrame(rows), f
 
-# ---------- Eco-Integrity (in MAIN DIR) ----------
+# ---------- Eco-Integrity ----------
 def load_eco_for_hex(h3_index: str, position: str):
     stems = dict(
         high_integrity=f"high_integrity_{h3_index}_{position}_2022",
@@ -209,4 +203,5 @@ def load_eco_for_hex(h3_index: str, position: str):
         else:
             res[key] = (None, None)
     return res
+
 
