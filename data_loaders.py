@@ -711,56 +711,39 @@ def filter_land_use_to_activities(landuse_df: _pd.DataFrame, matrix_df: _pd.Data
     return merged[keep].copy()
 
 def aggregate_activities_all_grids(cells_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Preferred: use Excel mapping to keep only activities and attach pressures.
-    Fallback: if no mapping or nothing matches, return a grouped table of TagValue with TotalArea_m2.
-    """
-    matrix_df, business_df = load_activity_pressure_matrix_with_businesses()
+    mdf, _bdf = load_activity_pressure_matrix_with_businesses()
 
-    all_parts = []
-    lu_seen = 0
+    parts = []
     for _, r in cells_df.iterrows():
         h3i, pos = r["h3_index"], r["position"]
         lu_df, _ = load_land_use(h3i, pos)
         if lu_df.empty:
             continue
-        lu_seen += len(lu_df)
-        if not matrix_df.empty:
-            filt = filter_land_use_to_activities(lu_df, matrix_df)
-            if not filt.empty:
-                all_parts.append(filt)
+        # keep only real activities via synonyms + Excel activities
+        filt = filter_land_use_to_activities(lu_df, mdf) if not mdf.empty else pd.DataFrame()
+        parts.append(filt if not filt.empty else lu_df.assign(Activity_norm=lu_df["TagValue"].map(_norm)))
 
-    if all_parts:
-        # Normal mapped case
-        all_lu = pd.concat(all_parts, ignore_index=True)
-        agg_area = (all_lu.groupby(["Activity_norm","TagValue"])
-                          .agg(TotalArea_m2=("AreaEnd_m2","sum"))
-                          .reset_index())
-        pressures = (matrix_df.sort_values("Sector")
-                     .drop_duplicates(subset=["Activity_norm"])
-                     [["Activity_norm","Activity"] + PRESSURE_COLS])
-        out = agg_area.merge(pressures, how="left", on="Activity_norm")
+    if not parts:
+        return pd.DataFrame(columns=["Activity","TotalArea_m2","Activity_norm"] + PRESSURE_COLS)
 
-        sectors = (all_lu.groupby("Activity_norm")["Sector"]
-                   .agg(lambda s: sorted(set(map(str, s))))
-                   .reset_index().rename(columns={"Sector":"Sectors"}))
-        out = out.merge(sectors, how="left", on="Activity_norm")
+    all_lu = pd.concat(parts, ignore_index=True)
 
-        if not business_df.empty:
-            biz = (business_df.groupby("Activity_norm")["Business"]
-                   .agg(lambda s: sorted(set(map(str, s))))
-                   .reset_index().rename(columns={"Business":"Businesses"}))
-            out = out.merge(biz, how="left", on="Activity_norm")
-        else:
-            out["Businesses"] = [[] for _ in range(len(out))]
+    # Sum area by (normalized) activity
+    grouped = (all_lu
+               .assign(Activity=all_lu.get("Activity", all_lu["TagValue"]))
+               .groupby(["Activity_norm","Activity"], as_index=False)
+               .agg(TotalArea_m2=("AreaEnd_m2","sum")))
 
-        out["Activity"] = out["TagValue"]
-        out.drop(columns=["TagValue"], inplace=True)
-        out["Sectors"] = out["Sectors"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
-        out["Businesses"] = out["Businesses"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
-        out = out[["Activity","TotalArea_m2","Sectors","Businesses","Activity_norm"] + PRESSURE_COLS]
-        out = out.sort_values(["TotalArea_m2","Activity"], ascending=[False, True]).reset_index(drop=True)
-        return out
+    # Attach pressures from Excel by Activity_norm
+    out = grouped.merge(
+        mdf.drop_duplicates(subset=["Activity_norm"])[["Activity_norm"] + PRESSURE_COLS],
+        how="left", on="Activity_norm"
+    )
+
+    # Order by area
+    out = out.sort_values(["TotalArea_m2","Activity"], ascending=[False, True]).reset_index(drop=True)
+    return out
+
 
     # ---- FALLBACK (no matches) ----
     # Group raw land-use by TagValue across all grids so the page still shows something.
