@@ -16,6 +16,7 @@ import unicodedata as _unicodedata, re as _re
 from pathlib import Path
 from typing import Optional
 from data_config import ACTIVITY_PRESSURE_FILE as _ACT_FILE
+import unicodedata, re  # make sure these are imported
 
 from data_config import (
     ROOT, GIT_BASE_URL, RES, CENTER, H3_LIST_FILE,
@@ -30,6 +31,18 @@ try:
     _HAS_FUZZ = True
 except Exception:
     _HAS_FUZZ = False
+
+
+def _norm_txt(s: str) -> str:
+    """Loose, accent/punct-insensitive normalizer for tag keys/values & activities."""
+    if not isinstance(s, str):
+        return ""
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.lower()
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 # ---------- H3 helpers ----------
 def _cell_boundary_latlon(h: str):
@@ -413,6 +426,20 @@ SYNONYMS = {
     "real estate": "Real Estate Development & Management",
     "real estate development": "Real Estate Development & Management",
     "real estate management": "Real Estate Development & Management",
+    # Land / buildings / commerce
+    "residential": "Residential buildings",
+    "residential buildings": "Residential buildings",
+    "commercial": "Commercial Buildings",
+    "commercial buildings": "Commercial Buildings",
+    "square": "Infrastructure",        # or "Commercial Buildings" if that’s how you treat squares
+
+    # Agriculture & related
+    "farmland": "Crop Farming",
+    "landuse=farmland": "Crop Farming",
+    "farming": "Crop Farming",
+    "agriculture": "Crop Farming",
+    "meadow": "Livestock",       
+    "farmyard": "Crop Farming",    
 
     # --- Energy ---
     "oil": "Oil & Gas",
@@ -556,9 +583,9 @@ SYNONYMS = {
 
 
 NATURAL_EXCLUDE = {
-    "wood","nature_reserve","farmland","bare_rock","residential","scrub",
-    "plateau","heath","orchard","ridge","water","farmyard","valley",
-    "grass","meadow","commercial","cliff","pitch","square","wetland",
+    "wood","nature_reserve","bare_rock","scrub",
+    "plateau","heath","orchard","ridge","water","valley",
+    "grass","cliff","pitch","wetland",
 }
 
 def _norm(s: str) -> str:
