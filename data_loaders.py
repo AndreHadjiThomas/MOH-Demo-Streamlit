@@ -164,43 +164,57 @@ def load_invasive_sensitive(h3_index: str, position: str):
 def load_land_use(h3_index: str, position: str):
     f = LAND_USE_FILE(h3_index, position)
     if not f.exists():
-        # Try fallback names: lower/upper case, hyphens
+        # fallback name variants
         alt = list(ROOT.glob(f"Land_use_{h3_index}_{position}.*")) + \
               list(ROOT.glob(f"land_use_{h3_index}_{position}.*")) + \
               list(ROOT.glob(f"landuse_{h3_index}_{position}.*"))
         if alt:
             f = alt[0]
         else:
-            return pd.DataFrame(columns=["TagValue", "AreaEnd_m2"]), None
+            return pd.DataFrame(columns=["TagKey","TagValue","AreaEnd_m2"]), None
 
     df = pd.read_csv(f)
-    # Choose a categorical/name column for the activity/tag
-    low = {c.lower(): c for c in df.columns}
-    tagv = (low.get("tagvalue") or low.get("tag_value") or low.get("class") or
-            low.get("landcover") or low.get("land_cover") or low.get("activity") or
-            next((c for c in df.columns if df[c].dtype == object), df.columns[0]))
 
-    # Find an area column and normalize to m² if possible
-    area_col = (low.get("areaend_m2") or low.get("area_m2") or low.get("area") or
-                low.get("areaend_m") or low.get("aream2") or None)
+    low = {c.lower(): c for c in df.columns}
+    # Prefer explicit TagKey/TagValue if present
+    tagkey_col = low.get("tagkey") or low.get("key")
+    tagval_col = (low.get("tagvalue") or low.get("tag_value") or low.get("class") or
+                  low.get("landcover") or low.get("land_cover") or low.get("activity") or
+                  next((c for c in df.columns if df[c].dtype == object), df.columns[0]))
+
+    # Area selection with unit normalization
+    area_m2 = (low.get("areaend_m2") or low.get("area_m2") or low.get("area") or
+               low.get("areaend_m") or low.get("aream2"))
     area_ha = low.get("areaend_ha") or low.get("area_ha")
     area_km2 = low.get("area_km2") or low.get("area_km²")
 
     out = pd.DataFrame()
-    out["TagValue"] = df[tagv].astype(str)
+    out["TagValue"] = df[tagval_col].astype(str)
 
-    if area_col:
-        out["AreaEnd_m2"] = pd.to_numeric(df[area_col], errors="coerce").fillna(0)
+    if tagkey_col:
+        out["TagKey"] = df[tagkey_col].astype(str)
+    else:
+        # If no TagKey, try a heuristic: if a 'key' column exists or infer natural/landuse by common names
+        out["TagKey"] = ""
+
+    if area_m2:
+        out["AreaEnd_m2"] = pd.to_numeric(df[area_m2], errors="coerce").fillna(0)
     elif area_ha:
         out["AreaEnd_m2"] = pd.to_numeric(df[area_ha], errors="coerce").fillna(0) * 10_000.0
     elif area_km2:
         out["AreaEnd_m2"] = pd.to_numeric(df[area_km2], errors="coerce").fillna(0) * 1_000_000.0
     else:
-        # last resort: any numeric column named like 'area'
         guess = next((c for c in df.columns if "area" in c.lower() and pd.api.types.is_numeric_dtype(df[c])), None)
         out["AreaEnd_m2"] = pd.to_numeric(df[guess], errors="coerce").fillna(0) if guess else 0.0
 
+    # -------- natural filter --------
+    key_norm = out["TagKey"].map(_norm_txt)
+    val_norm = out["TagValue"].map(_norm_txt)
+    mask_natural = (key_norm == "natural") & (val_norm.isin(NATURAL_EXCLUDE))
+    out = out.loc[~mask_natural].copy()
+
     return out, f
+
 
 
 # ---------- Environmental risks ----------
@@ -378,8 +392,11 @@ PRESSURE_COLS = [
 ]
 
 # optional synonyms you can extend
+# -------------------------------------------------------
+# Extended synonyms (OSM-ish) — activities + natural terms
+# -------------------------------------------------------
 SYNONYMS = {
-    # Agriculture / horticulture
+    # Agriculture / horticulture etc. (unchanged examples)
     "landuse=farmland": "agriculture",
     "farmland": "agriculture",
     "landuse=farm": "agriculture",
@@ -515,9 +532,40 @@ SYNONYMS = {
     "golf_course": "recreation (golf)",
     "ski_resort": "recreation (ski)",
 
-    # Catch-all
-    "tourist services": "tourism services",
+    # —— NATURAL tag values (recognized but excluded downstream) ——
+    "wood": "natural: wood",
+    "nature_reserve": "natural: nature_reserve",
+    "bare_rock": "natural: bare_rock",
+    "scrub": "natural: scrub",
+    "plateau": "natural: plateau",
+    "heath": "natural: heath",
+    "ridge": "natural: ridge",
+    "water": "natural: water",
+    "valley": "natural: valley",
+    "grass": "natural: grass",
+    "meadow": "natural: meadow",
+    "cliff": "natural: cliff",
+    "pitch": "natural: pitch",
+    "square": "natural: square",
+    "wetland": "natural: wetland",
 }
+
+NATURAL_EXCLUDE = {
+    "wood","nature_reserve","farmland","bare_rock","residential","scrub",
+    "plateau","heath","orchard","ridge","water","farmyard","valley",
+    "grass","meadow","commercial","cliff","pitch","square","wetland",
+}
+
+def _norm_txt(s: str) -> str:
+    # small normalizer for TagKey/TagValue comparisons
+    import unicodedata, re
+    if not isinstance(s, str): return ""
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.lower()
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 def _find_activity_excel(default_path: Path) -> Optional[Path]:
     """Return a usable Excel path. Tries the configured file, else searches repo root for *biomet*.xlsx."""
