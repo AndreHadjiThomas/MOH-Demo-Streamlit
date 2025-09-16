@@ -370,31 +370,24 @@ def page_pressure():
     st.markdown("### Activities")
 
     all_acts = aggregate_activities_all_grids(cells_df)
-
     if all_acts.empty:
-        st.error("No activities found anywhere. I couldn’t read Land_use files or they had no usable columns.")
+        st.error("No activities found after filtering out natural cover. Check Land_use CSVs and the Excel mapping.")
         st.stop()
 
-    # If pressures are all NaN, we’re in fallback mode
-    have_any_pressure = any(
-        (p in all_acts.columns) and all_acts[p].notna().any()
-        for p in PRESSURE_COLS
+    # Show the table: Activity + Area (m²)
+    show_cols = ["Activity", "TotalArea_m2"]
+    st.dataframe(
+        all_acts[show_cols],
+        use_container_width=True,
+        hide_index=True
     )
-    if not have_any_pressure:
-        with st.expander("Why am I seeing only a bare activities list?"):
-            st.write(
-                "- The Activity→Pressure Excel mapping could not be used or didn’t match any TagValue.\n"
-                "- I’m showing a fallback table: grouped TagValue across all grids with total area.\n"
-                "- To enable the pressure widget, ensure your Excel is readable and names align (synonyms help)."
-            )
 
-    show_cols = ["Activity","TotalArea_m2","Sectors","Businesses"]
-    st.dataframe(all_acts[show_cols], use_container_width=True, hide_index=True)
-
+    # “Click” simulation: choose an activity to see its pressures
     pick = st.selectbox(
-        "Pick an activity from the table to view its pressure profile",
+        "Select an activity to view its pressure profile",
         options=all_acts["Activity"].tolist()
     )
+
     row = get_activity_row(all_acts, pick)
     if row is None:
         st.info("Selected activity not found.")
@@ -404,9 +397,6 @@ def page_pressure():
         {"Pressure": p, "Value": (float(row[p]) if (p in row and pd.notna(row[p])) else np.nan)}
         for p in PRESSURE_COLS
     ])
-    # If all NaN → we’re in fallback; show a note
-    if press_df["Value"].isna().all():
-        st.warning("No pressure values for this activity (fallback mode). Check the Excel mapping or add a synonym.")
 
     def val_to_rgba(v: float):
         if pd.isna(v):
@@ -415,69 +405,29 @@ def page_pressure():
         r = int(round(255 * t)); g = int(round(180 * (1 - t))); b = int(round(120 + 80 * (1 - t)))
         return f"rgba({r},{g},{b},0.9)"
 
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        bar = go.Figure()
-        bar.add_trace(go.Bar(
-            x=press_df["Value"],
-            y=press_df["Pressure"],
-            orientation="h",
-            marker=dict(color=[val_to_rgba(v) for v in press_df["Value"]]),
-            hovertemplate="%{y}: %{x:.2f}<extra></extra>"
-        ))
-        bar.update_layout(
-            xaxis=dict(range=[0,1]),
-            margin=dict(l=10,r=10,t=10,b=10),
-            height=520,
-            title=f"Pressure profile — {row['Activity']}"
-        )
-        st.plotly_chart(bar, use_container_width=True)
+    st.markdown(f"**Pressure profile — {row['Activity']}**")
+    bar = go.Figure()
+    bar.add_trace(go.Bar(
+        x=press_df["Value"],
+        y=press_df["Pressure"],
+        orientation="h",
+        marker=dict(color=[val_to_rgba(v) for v in press_df["Value"]]),
+        hovertemplate="%{y}: %{x:.2f}<extra></extra>"
+    ))
+    bar.update_layout(
+        xaxis=dict(range=[0,1]),
+        margin=dict(l=10,r=10,t=10,b=10),
+        height=540
+    )
+    st.plotly_chart(bar, use_container_width=True)
 
-    with c2:
-        st.markdown("**Details**")
-        md = pd.DataFrame({
-            "Field": ["Activity", "Total area (m²)", "Sectors", "Businesses"],
-            "Value": [row["Activity"], f"{row['TotalArea_m2']:.0f}", row.get("Sectors",""), row.get("Businesses","")]
-        })
-        st.dataframe(md, hide_index=True, use_container_width=True)
-        st.markdown("**Raw pressure values**")
-        st.dataframe(press_df, hide_index=True, use_container_width=True)
+    # Optional details
+    details = pd.DataFrame({
+        "Field": ["Activity", "Total area (m²)"],
+        "Value": [row["Activity"], f"{row['TotalArea_m2']:.0f}"]
+    })
+    st.dataframe(details, hide_index=True, use_container_width=True)
 
-
-    def val_to_rgba(v: float):
-        if pd.isna(v):
-            return "rgba(180,180,180,0.6)"
-        t = float(np.clip(v, 0, 1))
-        r = int(round(255 * t)); g = int(round(180 * (1 - t))); b = int(round(120 + 80 * (1 - t)))
-        return f"rgba({r},{g},{b},0.9)"
-
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        bar = go.Figure()
-        bar.add_trace(go.Bar(
-            x=press_df["Value"],
-            y=press_df["Pressure"],
-            orientation="h",
-            marker=dict(color=[val_to_rgba(v) for v in press_df["Value"]]),
-            hovertemplate="%{y}: %{x:.2f}<extra></extra>"
-        ))
-        bar.update_layout(
-            xaxis=dict(range=[0,1]),
-            margin=dict(l=10,r=10,t=10,b=10),
-            height=520,
-            title=f"Pressure profile — {row['Activity']}"
-        )
-        st.plotly_chart(bar, use_container_width=True)
-
-    with c2:
-        st.markdown("**Details**")
-        md = pd.DataFrame({
-            "Field": ["Activity", "Total area (m²)", "Sectors", "Businesses"],
-            "Value": [row["Activity"], f"{row['TotalArea_m2']:.0f}", row["Sectors"], row["Businesses"]]
-        })
-        st.dataframe(md, hide_index=True, use_container_width=True)
-        st.markdown("**Raw pressure values**")
-        st.dataframe(press_df, hide_index=True, use_container_width=True)
 
 # ---------------- RISKS ----------------
 def page_risk():
