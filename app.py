@@ -14,7 +14,8 @@ from data_loaders import (
     get_cells_df, hex_outline_gdf, discover_landcover, to_git_url,
     load_biodiv_metrics, load_birds_for_hex, load_invasive_sensitive,
     load_land_use, load_environmental_risks, load_env_timeseries, compute_climate_intensity,
-    load_aqueduct_center, load_eco_for_hex, load_all_avg_ffi, load_wind_kml
+    load_aqueduct_center, load_eco_for_hex, load_all_avg_ffi, load_wind_kml,
+    aggregate_activities_all_grids, get_activity_row, PRESSURE_COLS
 )
 
 st.set_page_config(page_title="HelMos Biodiversity", page_icon="✨", layout="wide")
@@ -33,7 +34,7 @@ with st.sidebar:
             "overview": "Overview",
             "biodiv": "Biodiversity State",
             "eco": "Ecosystem State",
-            "pressure": "Pressures",
+            "pressure": "Activities / Pressures",
             "risk": "Risks",
         }[v],
         index=0,
@@ -48,17 +49,17 @@ with st.sidebar:
     sel_h3 = hex_choice.split("|")[1].strip()
     sel_pos = pos_map[sel_h3]
 
-    # Land cover overlay controls (used on Overview & applied to maps)
+    # Land cover overlay controls
     lc_year = st.number_input("Land-cover overlay year", value=int(ymax), min_value=YEAR_MIN, max_value=YEAR_MAX, step=1)
     lc_opacity = st.slider("Land-cover overlay opacity", 0, 100, 50, 5)
 
     # FFI filters
-    ffi_positions = st.multiselect("FFI grids (multi-select)", options=[pos_map[h] for h in cell_ids], default=[pos_map[h] for h in cell_ids])
+    ffi_positions = st.multiselect("FFI grids", options=[pos_map[h] for h in cell_ids], default=[pos_map[h] for h in cell_ids])
     ffi_threshold = st.slider("FFI threshold (fade lines below)", 0.0, 1.0, 0.5, 0.01)
 
 # ---------------- Map helpers ----------------
 HEX_OUTLINES = hex_outline_gdf(cell_ids)
-bounds = HEX_OUTLINES.total_bounds  # minx, miny, maxx, maxy
+bounds = HEX_OUTLINES.total_bounds
 center_lat = (bounds[1] + bounds[3]) / 2
 center_lon = (bounds[0] + bounds[2]) / 2
 
@@ -118,7 +119,6 @@ def landcover_layers(year: int, opacity_pct: int):
     return layers
 
 def windfarm_layer():
-    from data_loaders import load_wind_kml
     gdf, pth = load_wind_kml()
     if gdf.empty:
         return None
@@ -161,7 +161,7 @@ def color_ramp_fn(vals):
         return [r, g, b, 240]
     return to_color
 
-# ------------- Small helpers for “type + distance” tables -------------
+# ---------- Small helpers for tables ----------
 def pick_columns_type_distance(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame(columns=["Type", "Distance"])
@@ -172,10 +172,7 @@ def pick_columns_type_distance(df: pd.DataFrame) -> pd.DataFrame:
                 cols.get("dist_m") or cols.get("dist_km"))
     out = pd.DataFrame()
     out["Type"] = df[type_col].astype(str)
-    if dist_col:
-        out["Distance"] = df[dist_col]
-    else:
-        out["Distance"] = ""
+    out["Distance"] = df[dist_col] if dist_col else ""
     return out
 
 def pick_name_distance(df: pd.DataFrame) -> pd.DataFrame:
@@ -229,7 +226,6 @@ def page_overview():
             env, _ = load_environmental_risks(h, pos)
             if env is None or env.empty:
                 continue
-            # try area-like columns
             area_col = None
             for cand in ["Area", "area", "Area_km2", "area_km2", "Area (km2)", "Area_km²"]:
                 if cand in env.columns:
@@ -240,7 +236,6 @@ def page_overview():
                     continue
                 except Exception:
                     pass
-            # else parse numbers in strings like "45.7 km²"
             for c in env.columns:
                 if env[c].astype(str).str.contains("km").any():
                     try:
@@ -250,7 +245,7 @@ def page_overview():
                     except Exception:
                         pass
         with c3: st.metric("Protected cover (km²)", f"{total_protected_km2:.1f}")
-        with c4: st.metric("Water risk score", "—")  # no single scalar available
+        with c4: st.metric("Water risk score", "—")
 
 # ---------------- BIODIVERSITY ----------------
 def page_biodiv():
@@ -292,7 +287,7 @@ def page_biodiv():
             fig.update_layout(barmode="group", margin=dict(l=10, r=10, t=10, b=10))
             st.plotly_chart(fig, use_container_width=True)
 
-    birds, f_birds = load_birds_for_hex(sel_h3, sel_pos)
+    birds, _ = load_birds_for_hex(sel_h3, sel_pos)
     st.markdown("**Birds — Your Grid**")
     st.dataframe(birds, use_container_width=True, hide_index=True)
 
@@ -317,7 +312,7 @@ def page_eco():
         ))
     st.pydeck_chart(deck_with_layers(layers))
 
-    # Protected ecosystems from environmental_risks: show ALL grids Name + Distance
+    # Protected ecosystems across ALL grids
     st.markdown("**Protected ecosystems — All Grids (Name & Distance)**")
     prot_rows = []
     for h in cell_ids:
@@ -335,7 +330,7 @@ def page_eco():
     else:
         st.info("No environmental_risks files found to list protected ecosystems.")
 
-    # Eco details (Your Grid): show only [Type, Distance]
+    # Eco details (Your Grid): Type + Distance
     eco = load_eco_for_hex(sel_h3, sel_pos)
     c1, c2, c3 = st.columns(3)
     hi_df, _ = eco["high_integrity"]
@@ -365,72 +360,79 @@ def page_eco():
             fig = go.Figure()
             for pos in sorted(plot_df["position"].unique()):
                 d = plot_df[plot_df["position"] == pos]
-                opacity = 1.0 if (d["value"].max() >= ffi_threshold) else 0.7  # less faded
+                opacity = 1.0 if (d["value"].max() >= ffi_threshold) else 0.7
                 fig.add_trace(go.Scatter(x=d["year"], y=d["value"], mode="lines+markers", name=pos, opacity=opacity))
             fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h"))
             st.plotly_chart(fig, use_container_width=True)
 
-# ---------------- PRESSURES ----------------
+# ---------------- ACTIVITIES / PRESSURES ----------------
 def page_pressure():
-    st.markdown("### Region Map")
-    # Shade by count of land cover entries (proxy)
-    layers = []
-    scores = {}
-    for h in cell_ids:
-        pos = pos_map[h]
-        df, _ = load_land_use(h, pos)
-        if not df.empty:
-            scores[h] = float(len(df))
-    if scores:
-        vals = np.array([scores.get(h, 0.0) for h in cell_ids])
-        to_color = color_ramp_fn(vals)
-        polys = []
-        for i, h in enumerate(cell_ids):
-            color = to_color(float(scores.get(h, 0.0)))
-            coords = list(HEX_OUTLINES.iloc[i].geometry.exterior.coords)
-            label = "Your Grid" if h == sel_h3 else f"{pos_map[h]} | n={scores.get(h, 0):.0f}"
-            polys.append({"polygon": [[x, y] for (x, y) in coords], "fill_color": color, "label": label})
-        layers.append(pdk.Layer(
-            "PolygonLayer", data=polys, get_polygon="polygon",
-            get_fill_color="fill_color", get_line_color=[51, 65, 85, 220],
-            line_width_min_pixels=1, stroked=True, filled=True, pickable=True
+    st.markdown("### Activities")
+
+    # Build one table across ALL grids, grouped by Activity
+    all_acts = aggregate_activities_all_grids(cells_df)
+
+    if all_acts.empty:
+        st.info("No activities found. Ensure Land_use CSVs have TagValue/AreaEnd_m2 and the Excel mapping exists.")
+        return
+
+    show_cols = ["Activity","TotalArea_m2","Sectors","Businesses"]
+    st.dataframe(all_acts[show_cols], use_container_width=True, hide_index=True)
+
+    # Select an activity (row-substitute) to show pressure widget
+    pick = st.selectbox(
+        "Pick an activity from the table to view its pressure profile",
+        options=all_acts["Activity"].tolist()
+    )
+
+    row = get_activity_row(all_acts, pick)
+    if row is None:
+        st.info("Selected activity not found.")
+        return
+
+    press_df = pd.DataFrame([
+        {"Pressure": p, "Value": float(row[p]) if pd.notna(row[p]) else np.nan}
+        for p in PRESSURE_COLS
+    ])
+
+    def val_to_rgba(v: float):
+        if pd.isna(v):
+            return "rgba(180,180,180,0.6)"
+        t = float(np.clip(v, 0, 1))
+        r = int(round(255 * t)); g = int(round(180 * (1 - t))); b = int(round(120 + 80 * (1 - t)))
+        return f"rgba({r},{g},{b},0.9)"
+
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        bar = go.Figure()
+        bar.add_trace(go.Bar(
+            x=press_df["Value"],
+            y=press_df["Pressure"],
+            orientation="h",
+            marker=dict(color=[val_to_rgba(v) for v in press_df["Value"]]),
+            hovertemplate="%{y}: %{x:.2f}<extra></extra>"
         ))
-    st.pydeck_chart(deck_with_layers(layers))
+        bar.update_layout(
+            xaxis=dict(range=[0,1]),
+            margin=dict(l=10,r=10,t=10,b=10),
+            height=520,
+            title=f"Pressure profile — {row['Activity']}"
+        )
+        st.plotly_chart(bar, use_container_width=True)
 
-    # Activities: only TagValue + AreaEnd_m2
-    act, _ = load_land_use(sel_h3, sel_pos)
-    st.markdown("**Land cover (pressures) — Your Grid**")
-    if act.empty:
-        st.info("No Land_use_{h3}_{pos}.csv for Your Grid.")
-    else:
-        st.dataframe(act[["TagValue", "AreaEnd_m2"]], use_container_width=True, hide_index=True)
-
-    # Invasive species (pressures)
-    inv, _, sfile = load_invasive_sensitive(sel_h3, sel_pos)
-    st.markdown("**Invasive species — Your Grid**")
-    st.dataframe(inv.head(200), use_container_width=True, hide_index=True)
-
-    # Climate drivers & intensity
-    envts, f_envts = load_env_timeseries(sel_pos)
-    st.markdown("**Climate drivers — Your Grid**")
-    if envts.empty:
-        st.info("No environmental_data_<POSITION>_.csv for Your Grid.")
-    else:
-        num_cols = [c for c in envts.columns if c != "year" and pd.api.types.is_numeric_dtype(envts[c])]
-        if num_cols:
-            plot_df = envts[(envts["year"] >= ymin) & (envts["year"] <= ymax)]
-            fig = go.Figure()
-            for c in num_cols:
-                fig.add_trace(go.Scatter(x=plot_df["year"], y=plot_df[c], mode="lines", name=c))
-            fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), legend=dict(orientation="h"))
-            st.plotly_chart(fig, use_container_width=True)
-        ci = compute_climate_intensity(envts, ymin, ymax)
-        st.metric("Climate intensity (z-score blend)", f"{ci:.2f}" if pd.notna(ci) else "—")
+    with c2:
+        st.markdown("**Details**")
+        md = pd.DataFrame({
+            "Field": ["Activity", "Total area (m²)", "Sectors", "Businesses"],
+            "Value": [row["Activity"], f"{row['TotalArea_m2']:.0f}", row["Sectors"], row["Businesses"]]
+        })
+        st.dataframe(md, hide_index=True, use_container_width=True)
+        st.markdown("**Raw pressure values**")
+        st.dataframe(press_df, hide_index=True, use_container_width=True)
 
 # ---------------- RISKS ----------------
 def page_risk():
     st.markdown("### Region Map")
-    # Full map showing all grids (uniform fill)
     layers = []
     polys = []
     for i, h in enumerate(cell_ids):
@@ -444,7 +446,6 @@ def page_risk():
     ))
     st.pydeck_chart(deck_with_layers(layers))
 
-    # Water risks — show a simple name/value table (use labels)
     center_h3 = cells_df.loc[cells_df["position"] == "CENTER", "h3_index"].iloc[0]
     aq, _ = load_aqueduct_center(center_h3)
     st.markdown("**Water risks — Center (name & value)**")
@@ -454,7 +455,6 @@ def page_risk():
         tbl = aq[["dimension", "label"]].rename(columns={"dimension": "Risk", "label": "Value"})
         st.dataframe(tbl, use_container_width=True, hide_index=True)
 
-    # Sensitive species (VU/EN/CR)
     _, sens, _ = load_invasive_sensitive(sel_h3, sel_pos)
     st.markdown("**Sensitive species (VU/EN/CR) — Your Grid**")
     st.dataframe(sens.head(500), use_container_width=True, hide_index=True)
