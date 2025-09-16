@@ -13,7 +13,8 @@ from pathlib import Path as _Path
 import pandas as _pd
 import numpy as _np
 import unicodedata as _unicodedata, re as _re
-
+from pathlib import Path
+from typing import Optional
 from data_config import ACTIVITY_PRESSURE_FILE as _ACT_FILE
 
 from data_config import (
@@ -163,19 +164,44 @@ def load_invasive_sensitive(h3_index: str, position: str):
 def load_land_use(h3_index: str, position: str):
     f = LAND_USE_FILE(h3_index, position)
     if not f.exists():
-        return pd.DataFrame(columns=["TagValue", "AreaEnd_m2"]), None
+        # Try fallback names: lower/upper case, hyphens
+        alt = list(ROOT.glob(f"Land_use_{h3_index}_{position}.*")) + \
+              list(ROOT.glob(f"land_use_{h3_index}_{position}.*")) + \
+              list(ROOT.glob(f"landuse_{h3_index}_{position}.*"))
+        if alt:
+            f = alt[0]
+        else:
+            return pd.DataFrame(columns=["TagValue", "AreaEnd_m2"]), None
+
     df = pd.read_csv(f)
+    # Choose a categorical/name column for the activity/tag
     low = {c.lower(): c for c in df.columns}
-    tagv = low.get("tagvalue") or low.get("tag_value") or low.get("class") or low.get("landcover") or low.get("land_cover")
-    area = low.get("areaend_m2") or low.get("area_m2") or low.get("area")
+    tagv = (low.get("tagvalue") or low.get("tag_value") or low.get("class") or
+            low.get("landcover") or low.get("land_cover") or low.get("activity") or
+            next((c for c in df.columns if df[c].dtype == object), df.columns[0]))
+
+    # Find an area column and normalize to m² if possible
+    area_col = (low.get("areaend_m2") or low.get("area_m2") or low.get("area") or
+                low.get("areaend_m") or low.get("aream2") or None)
+    area_ha = low.get("areaend_ha") or low.get("area_ha")
+    area_km2 = low.get("area_km2") or low.get("area_km²")
+
     out = pd.DataFrame()
-    if tagv:
-        out["TagValue"] = df[tagv].astype(str)
+    out["TagValue"] = df[tagv].astype(str)
+
+    if area_col:
+        out["AreaEnd_m2"] = pd.to_numeric(df[area_col], errors="coerce").fillna(0)
+    elif area_ha:
+        out["AreaEnd_m2"] = pd.to_numeric(df[area_ha], errors="coerce").fillna(0) * 10_000.0
+    elif area_km2:
+        out["AreaEnd_m2"] = pd.to_numeric(df[area_km2], errors="coerce").fillna(0) * 1_000_000.0
     else:
-        cand = next((c for c in df.columns if df[c].dtype == object), df.columns[0])
-        out["TagValue"] = df[cand].astype(str)
-    out["AreaEnd_m2"] = pd.to_numeric(df[area], errors="coerce") if area else 0
+        # last resort: any numeric column named like 'area'
+        guess = next((c for c in df.columns if "area" in c.lower() and pd.api.types.is_numeric_dtype(df[c])), None)
+        out["AreaEnd_m2"] = pd.to_numeric(df[guess], errors="coerce").fillna(0) if guess else 0.0
+
     return out, f
+
 
 # ---------- Environmental risks ----------
 def load_environmental_risks(h3_index: str, position: str) -> Tuple[pd.DataFrame, Optional[Path]]:
@@ -493,7 +519,20 @@ SYNONYMS = {
     "tourist services": "tourism services",
 }
 
-
+def _find_activity_excel(default_path: Path) -> Optional[Path]:
+    """Return a usable Excel path. Tries the configured file, else searches repo root for *biomet*.xlsx."""
+    if default_path and default_path.exists():
+        return default_path
+    candidates = list(Path(".").glob("*.xlsx"))
+    # Prefer files that look like the Biomet repertoire
+    preferred = [p for p in candidates if "biomet" in p.name.lower() and "répertoire" in p.name.lower()]
+    if preferred:
+        return preferred[0]
+    generic = [p for p in candidates if "biomet" in p.name.lower()]
+    if generic:
+        return generic[0]
+    return default_path if default_path.exists() else None
+    
 def _norm_str(s: str) -> str:
     if not isinstance(s, str):
         return ""
@@ -610,60 +649,86 @@ def filter_land_use_to_activities(landuse_df: _pd.DataFrame, matrix_df: _pd.Data
     keep = ["TagValue","AreaEnd_m2","Sector","Activity","Activity_norm"] + PRESSURE_COLS
     return merged[keep].copy()
 
-def aggregate_activities_all_grids(cells_df: _pd.DataFrame) -> _pd.DataFrame:
+def aggregate_activities_all_grids(cells_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Across ALL grids: land-use → keep activities; group by Activity name (sum AreaEnd_m2);
-    attach Sectors/Businesses and one set of pressure values per Activity.
+    Preferred: use Excel mapping to keep only activities and attach pressures.
+    Fallback: if no mapping or nothing matches, return a grouped table of TagValue with TotalArea_m2.
     """
-    mdf, bdf = load_activity_pressure_matrix_with_businesses()
-    if mdf.empty:
-        return _pd.DataFrame(columns=["Activity","TotalArea_m2","Sectors","Businesses"] + PRESSURE_COLS)
+    matrix_df, business_df = load_activity_pressure_matrix_with_businesses()
 
-    parts = []
+    all_parts = []
+    lu_seen = 0
     for _, r in cells_df.iterrows():
         h3i, pos = r["h3_index"], r["position"]
-        lu_df, _ = load_land_use(h3i, pos)  # your existing function
+        lu_df, _ = load_land_use(h3i, pos)
         if lu_df.empty:
             continue
-        filt = filter_land_use_to_activities(lu_df, mdf)
-        if not filt.empty:
-            parts.append(filt)
+        lu_seen += len(lu_df)
+        if not matrix_df.empty:
+            filt = filter_land_use_to_activities(lu_df, matrix_df)
+            if not filt.empty:
+                all_parts.append(filt)
 
-    if not parts:
-        return _pd.DataFrame(columns=["Activity","TotalArea_m2","Sectors","Businesses"] + PRESSURE_COLS)
+    if all_parts:
+        # Normal mapped case
+        all_lu = pd.concat(all_parts, ignore_index=True)
+        agg_area = (all_lu.groupby(["Activity_norm","TagValue"])
+                          .agg(TotalArea_m2=("AreaEnd_m2","sum"))
+                          .reset_index())
+        pressures = (matrix_df.sort_values("Sector")
+                     .drop_duplicates(subset=["Activity_norm"])
+                     [["Activity_norm","Activity"] + PRESSURE_COLS])
+        out = agg_area.merge(pressures, how="left", on="Activity_norm")
 
-    all_lu = _pd.concat(parts, ignore_index=True)
+        sectors = (all_lu.groupby("Activity_norm")["Sector"]
+                   .agg(lambda s: sorted(set(map(str, s))))
+                   .reset_index().rename(columns={"Sector":"Sectors"}))
+        out = out.merge(sectors, how="left", on="Activity_norm")
 
-    agg_area = (all_lu.groupby(["Activity_norm","TagValue"])
-                      .agg(TotalArea_m2=("AreaEnd_m2","sum"))
-                      .reset_index())
+        if not business_df.empty:
+            biz = (business_df.groupby("Activity_norm")["Business"]
+                   .agg(lambda s: sorted(set(map(str, s))))
+                   .reset_index().rename(columns={"Business":"Businesses"}))
+            out = out.merge(biz, how="left", on="Activity_norm")
+        else:
+            out["Businesses"] = [[] for _ in range(len(out))]
 
-    pressures = (mdf.sort_values("Sector")
-                   .drop_duplicates(subset=["Activity_norm"])
-                   [["Activity_norm","Activity"] + PRESSURE_COLS])
+        out["Activity"] = out["TagValue"]
+        out.drop(columns=["TagValue"], inplace=True)
+        out["Sectors"] = out["Sectors"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
+        out["Businesses"] = out["Businesses"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
+        out = out[["Activity","TotalArea_m2","Sectors","Businesses","Activity_norm"] + PRESSURE_COLS]
+        out = out.sort_values(["TotalArea_m2","Activity"], ascending=[False, True]).reset_index(drop=True)
+        return out
 
-    out = agg_area.merge(pressures, how="left", on="Activity_norm")
+    # ---- FALLBACK (no matches) ----
+    # Group raw land-use by TagValue across all grids so the page still shows something.
+    # Pressures remain NaN; you can still pick an activity but the widget will be empty.
+    lu_rows = []
+    for _, r in cells_df.iterrows():
+        h3i, pos = r["h3_index"], r["position"]
+        lu_df, _ = load_land_use(h3i, pos)
+        if lu_df.empty:
+            continue
+        lu_rows.append(lu_df[["TagValue","AreaEnd_m2"]])
+    if not lu_rows:
+        return pd.DataFrame(columns=["Activity","TotalArea_m2","Sectors","Businesses"] + PRESSURE_COLS)
 
-    sectors = (all_lu.groupby("Activity_norm")["Sector"]
-               .agg(lambda s: sorted(set(map(str, s))))
-               .reset_index().rename(columns={"Sector":"Sectors"}))
-    out = out.merge(sectors, how="left", on="Activity_norm")
+    all_lu = pd.concat(lu_rows, ignore_index=True)
+    agg = (all_lu.groupby("TagValue")
+                 .agg(TotalArea_m2=("AreaEnd_m2","sum"))
+                 .reset_index())
+    agg["Activity"] = agg["TagValue"]
+    agg["Sectors"] = ""
+    agg["Businesses"] = ""
+    agg["Activity_norm"] = agg["Activity"].apply(_normalize_activity_name)
+    # add the pressure columns as NaN
+    for p in PRESSURE_COLS:
+        agg[p] = np.nan
+    agg = agg[["Activity","TotalArea_m2","Sectors","Businesses","Activity_norm"] + PRESSURE_COLS]
+    agg = agg.sort_values(["TotalArea_m2","Activity"], ascending=[False, True]).reset_index(drop=True)
+    return agg
 
-    if not bdf.empty:
-        biz = (bdf.groupby("Activity_norm")["Business"]
-               .agg(lambda s: sorted(set(map(str, s))))
-               .reset_index().rename(columns={"Business":"Businesses"}))
-        out = out.merge(biz, how="left", on="Activity_norm")
-    else:
-        out["Businesses"] = [[] for _ in range(len(out))]
-
-    out["Activity"] = out["TagValue"]
-    out.drop(columns=["TagValue"], inplace=True)
-    out["Sectors"] = out["Sectors"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
-    out["Businesses"] = out["Businesses"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
-    out = out[["Activity","TotalArea_m2","Sectors","Businesses","Activity_norm"] + PRESSURE_COLS]
-    out = out.sort_values(["TotalArea_m2","Activity"], ascending=[False, True]).reset_index(drop=True)
-    return out
 
 def get_activity_row(all_activities_df: _pd.DataFrame, activity_name: str) -> _pd.Series | None:
     """Find a single activity row by normalized name (fallback to exact Activity)."""
