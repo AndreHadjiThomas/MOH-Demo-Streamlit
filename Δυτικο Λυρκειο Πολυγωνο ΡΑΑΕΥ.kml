@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document id="root_doc">
+<Schema name="Δυτικο_Λυρκειο_Πολυγωνο_ΡΑΑΕΥ" id="Δυτικο_Λυρκειο_Πολυγωνο_ΡΑΑΕΥ">
+	<SimpleField name="id1" type="int"></SimpleField>
+	<SimpleField name="aa" type="string"></SimpleField>
+	<SimpleField name="aa_trop" type="string"></SimpleField>
+	<SimpleField name="company" type="string"></SimpleField>
+	<SimpleField name="a_m" type="string"></SimpleField>
+	<SimpleField name="thesh" type="string"></SimpleField>
+	<SimpleField name="kal_dhmos" type="string"></SimpleField>
+	<SimpleField name="kal_dhm_en" type="string"></SimpleField>
+	<SimpleField name="kal_perif_" type="string"></SimpleField>
+	<SimpleField name="kal_perife" type="string"></SimpleField>
+	<SimpleField name="epo" type="string"></SimpleField>
+	<SimpleField name="power_mw" type="float"></SimpleField>
+	<SimpleField name="max_power" type="float"></SimpleField>
+	<SimpleField name="katastash_" type="string"></SimpleField>
+	<SimpleField name="katastash0" type="string"></SimpleField>
+	<SimpleField name="paratirise" type="string"></SimpleField>
+	<SimpleField name="imerominia" type="string"></SimpleField>
+	<SimpleField name="imeromini0" type="string"></SimpleField>
+	<SimpleField name="area_m2" type="float"></SimpleField>
+</Schema>
+<Folder><name>Δυτικο_Λυρκειο_Πολυγωνο_ΡΑΑΕΥ</name>
+  <Placemark>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<ExtendedData><SchemaData schemaUrl="#Δυτικο_Λυρκειο_Πολυγωνο_ΡΑΑΕΥ">
+		<SimpleData name="id1">40982</SimpleData>
+		<SimpleData name="aa">Ξ“-03540</SimpleData>
+		<SimpleData name="company">Ξ‘ΞΞ•ΞΞΞ£ RES Ξ‘ΞΞ©ΞΞ¥ΞΞ— Ξ•Ξ¤Ξ‘Ξ™Ξ΅Ξ•Ξ™Ξ‘</SimpleData>
+		<SimpleData name="a_m">Ξ‘Ξ”-04230</SimpleData>
+		<SimpleData name="thesh">Ξ”Ξ¥Ξ¤Ξ™ΞΞ Ξ›Ξ¥Ξ΅ΞΞ•Ξ™ΞΞ - Ξ¤Ξ΅Ξ‘Ξ§Ξ¥ ΞΞ΅ΞΞ£</SimpleData>
+		<SimpleData name="kal_dhmos">Ξ‘Ξ΅Ξ“ΞΞ¥Ξ£ - ΞΞ¥ΞΞ—ΞΞ©Ξ,Ξ¤Ξ΅Ξ™Ξ ΞΞ›Ξ—Ξ£</SimpleData>
+		<SimpleData name="kal_dhm_en">Ξ‘Ξ›Ξ•Ξ‘Ξ£,Ξ›Ξ•Ξ’Ξ™Ξ”Ξ™ΞΞ¥,ΞΞ‘ΞΞ¤Ξ™ΞΞ•Ξ™Ξ‘Ξ£</SimpleData>
+		<SimpleData name="kal_perif_">Ξ‘Ξ΅Ξ“ΞΞ›Ξ™Ξ”Ξ‘Ξ£,Ξ‘Ξ΅ΞΞ‘Ξ”Ξ™Ξ‘Ξ£</SimpleData>
+		<SimpleData name="kal_perife">Ξ Ξ•Ξ›ΞΞ ΞΞΞΞ—Ξ£ΞΞ¥</SimpleData>
+		<SimpleData name="epo">ΞΞ§Ξ™</SimpleData>
+		<SimpleData name="power_mw">46.200000000000003</SimpleData>
+		<SimpleData name="max_power">44.000000000000000</SimpleData>
+		<SimpleData name="katastash_">1.1</SimpleData>
+		<SimpleData name="katastash0">Ξ‘Ξ”Ξ•Ξ™Ξ‘ Ξ Ξ‘Ξ΅Ξ‘Ξ“Ξ©Ξ“Ξ—Ξ£</SimpleData>
+		<SimpleData name="imerominia">2008/08/07</SimpleData>
+		<SimpleData name="imeromini0">2020/02/06</SimpleData>
+	</SchemaData></ExtendedData>
+      <MultiGeometry><Polygon><outerBoundaryIs><LinearRing><coordinates>22.401129609762,37.7004074186272 22.4072890199294,37.7010260572265 22.4076050229268,37.7002502963329 22.4062145441673,37.6973835786348 22.4084788946852,37.6890866713897 22.4109392248366,37.6853977128345 22.4058818694937,37.6832565828778 22.4012610525383,37.6914313927846 22.4013801679177,37.699616294782 22.401129609762,37.7004074186272</coordinates></LinearRing></outerBoundaryIs></Polygon><Polygon><outerBoundaryIs><LinearRing><coordinates>22.4072682443076,37.7010770590104 22.4011170520721,37.7004470683686 22.3990437165977,37.7069927965097 22.3972625933652,37.7148995100141 22.3979024911635,37.7189007002329 22.4022501578328,37.7193202078685 22.4019238701019,37.7170807097332 22.4036261996219,37.7149407994777 22.4022452963249,37.7116235497145 22.4046270251018,37.7090061579061 22.4068833742291,37.7074685114717 22.405845112476,37.7045705012224 22.4072682443076,37.7010770590104</coordinates></LinearRing></outerBoundaryIs></Polygon><Polygon><outerBoundaryIs><LinearRing><coordinates>22.4034665449488,37.7276641417506 22.4022601466742,37.7193834311481 22.3978895964166,37.7189726241181 22.3968650557941,37.733342457037 22.3957187631427,37.735453778429 22.4001884910352,37.738155160988 22.4009394814668,37.7364800396658 22.4062119352923,37.7410429137858 22.4105372232676,37.7382050623197 22.4087175374941,37.7357381517514 22.403055889698,37.7330479834694 22.4027820700803,37.7304757445402 22.4034665449488,37.7276641417506</coordinates></LinearRing></outerBoundaryIs></Polygon></MultiGeometry>
+  </Placemark>
+</Folder>
+</Document></kml>
