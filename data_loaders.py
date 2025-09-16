@@ -9,23 +9,15 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Polygon
 import h3
-from pathlib import Path as _Path
-import pandas as _pd
-import numpy as _np
-import unicodedata as _unicodedata, re as _re
-from pathlib import Path
-from typing import Optional
-from data_config import ACTIVITY_PRESSURE_FILE as _ACT_FILE
-import unicodedata, re  # make sure these are imported
 
 from data_config import (
     ROOT, GIT_BASE_URL, RES, CENTER, H3_LIST_FILE,
     BIODIVERSITY_METRICS, SPECIES_FILE, LAND_USE_FILE,
     ENV_RISK_FILE_BY_H3, ENV_RISK_FILE, ENV_TIMESERIES_FILE, POP_FILE,
-    AQUEDUCT_FILE, LANDCOVER_GLOB, ECO_FILE, WIND_KML
+    AQUEDUCT_FILE, LANDCOVER_GLOB, ECO_FILE, WIND_KML, ACTIVITY_PRESSURE_FILE
 )
 
-# fuzzy matcher
+# fuzzy matcher (optional)
 try:
     from rapidfuzz import process as _rf_process, fuzz as _rf_fuzz
     _HAS_FUZZ = True
@@ -33,6 +25,7 @@ except Exception:
     _HAS_FUZZ = False
 
 
+# ---------------- Normalizers ----------------
 def _norm_txt(s: str) -> str:
     """Loose, accent/punct-insensitive normalizer for tag keys/values & activities."""
     if not isinstance(s, str):
@@ -44,12 +37,15 @@ def _norm_txt(s: str) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
-# ---------- H3 helpers ----------
+def _norm(s: str) -> str:
+    return _norm_txt(s)
+
+# ---------------- H3 helpers ----------------
 def _cell_boundary_latlon(h: str):
     try:
         return h3.cell_to_boundary(h)  # newer API
     except TypeError:
-        return h3.cell_to_boundary(h, True)  # older API
+        return h3.cell_to_boundary(h, True)  # older API accepts (h, geo_json=True)
 
 def get_cells_df() -> pd.DataFrame:
     if H3_LIST_FILE.exists():
@@ -71,7 +67,7 @@ def hex_outline_gdf(h3_indices: List[str]) -> gpd.GeoDataFrame:
         recs.append({"h3_index": hidx, "geometry": poly})
     return gpd.GeoDataFrame(recs, crs="EPSG:4326")
 
-# ---------- Git URL helper ----------
+# ---------------- Git link ----------------
 def to_git_url(local_path: Path) -> Optional[str]:
     if not GIT_BASE_URL:
         return None
@@ -82,7 +78,7 @@ def to_git_url(local_path: Path) -> Optional[str]:
         rel = local_path
     return f"{base}/{rel.as_posix()}"
 
-# ---------- Land cover discovery ----------
+# ---------------- Land-cover discovery ----------------
 LC_PAT = re.compile(r"^(?P<h3>[0-9a-f]+)_(?P<pos>[A-Za-z0-9_]+)_(?P<year>\d{4})_(?P<tag>glc_fcs30d|landcover)\.geojson$", re.I)
 
 def discover_landcover() -> pd.DataFrame:
@@ -99,7 +95,7 @@ def discover_landcover() -> pd.DataFrame:
             ))
     return pd.DataFrame(parsed, columns=["file", "h3_index", "position", "year", "tag"])
 
-# ---------- KML windfarm ----------
+# ---------------- Windfarm KML ----------------
 def load_wind_kml() -> Tuple[gpd.GeoDataFrame, Optional[Path]]:
     p = WIND_KML
     if not p.exists():
@@ -116,7 +112,7 @@ def load_wind_kml() -> Tuple[gpd.GeoDataFrame, Optional[Path]]:
     except Exception:
         return gpd.GeoDataFrame(geometry=[]), p
 
-# ---------- Biodiversity ----------
+# ---------------- Biodiversity ----------------
 def load_biodiv_metrics() -> pd.DataFrame:
     p = Path(BIODIVERSITY_METRICS)
     if not p.exists():
@@ -131,20 +127,22 @@ def load_biodiv_metrics() -> pd.DataFrame:
     df["h3_index"] = df["h3_index"].astype(str)
     return df
 
+def _pick_bird_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Heuristic to filter birds/aves if a taxonomic column exists; otherwise return df."""
+    for cand in ["Group", "group", "Class", "class", "Order", "order"]:
+        if cand in df.columns:
+            birds = df[df[cand].astype(str).str.contains("bird|aves", case=False, na=False)]
+            if not birds.empty:
+                return birds
+    return df
+
 def load_birds_for_hex(h3_index: str, position: str):
     f = SPECIES_FILE(h3_index, position)
     if not f.exists():
         return pd.DataFrame(columns=["Species", "Status", "Count"]), None
     df = pd.read_csv(f)
     name_col = "CanonicalName" if "CanonicalName" in df.columns else df.columns[0]
-    birds = pd.DataFrame()
-    for cand in ["Group", "group", "Class", "class", "Order", "order"]:
-        if cand in df.columns:
-            birds = df[df[cand].astype(str).str.contains("bird|aves", case=False, na=False)]
-            if not birds.empty:
-                break
-    if birds.empty:
-        birds = df
+    birds = _pick_bird_rows(df)
     out = birds.rename(columns={name_col: "Species"})
     if "Status" not in out.columns:
         out["Status"] = ""
@@ -152,7 +150,26 @@ def load_birds_for_hex(h3_index: str, position: str):
         out["Count"] = out["GBIF_Total_Observations"]
     if "Count" not in out.columns:
         out["Count"] = 1
-    return out[["Species", "Status", "Count"]].sort_values("Count", ascending=False).head(200), f
+    return out[["Species", "Status", "Count"]].copy(), f
+
+def load_birds_all_grids(cells_df: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate birds across all grids: sum Count by (Species, Status)."""
+    parts = []
+    for _, r in cells_df.iterrows():
+        h3i, pos = r["h3_index"], r["position"]
+        df, _ = load_birds_for_hex(h3i, pos)
+        if df is not None and not df.empty:
+            parts.append(df)
+    if not parts:
+        return pd.DataFrame(columns=["Species", "Status", "Count"])
+    allb = pd.concat(parts, ignore_index=True)
+    # Normalize species names to avoid duplicates by casing
+    allb["Species"] = allb["Species"].astype(str).str.strip()
+    allb["Status"] = allb["Status"].astype(str).str.strip()
+    agg = (allb.groupby(["Species", "Status"], as_index=False)
+                .agg(Count=("Count", "sum"))
+                .sort_values("Count", ascending=False))
+    return agg
 
 def load_invasive_sensitive(h3_index: str, position: str):
     f = SPECIES_FILE(h3_index, position)
@@ -173,11 +190,18 @@ def load_invasive_sensitive(h3_index: str, position: str):
             break
     return inv.drop_duplicates(), sens.drop_duplicates(), f
 
-# ---------- Activities (minimal) ----------
+# ---------------- Activities / Land-use ----------------
+# Never show these natural features in Activities
+NATURAL_EXCLUDE = {
+    "wood","nature_reserve","bare_rock","scrub",
+    "plateau","heath","orchard","ridge","water","valley",
+    "grass","cliff","pitch","wetland",
+}
+
 def load_land_use(h3_index: str, position: str):
     f = LAND_USE_FILE(h3_index, position)
     if not f.exists():
-        # fallback name variants
+        # tolerant fallbacks
         alt = list(ROOT.glob(f"Land_use_{h3_index}_{position}.*")) + \
               list(ROOT.glob(f"land_use_{h3_index}_{position}.*")) + \
               list(ROOT.glob(f"landuse_{h3_index}_{position}.*"))
@@ -189,13 +213,11 @@ def load_land_use(h3_index: str, position: str):
     df = pd.read_csv(f)
 
     low = {c.lower(): c for c in df.columns}
-    # Prefer explicit TagKey/TagValue if present
     tagkey_col = low.get("tagkey") or low.get("key")
     tagval_col = (low.get("tagvalue") or low.get("tag_value") or low.get("class") or
                   low.get("landcover") or low.get("land_cover") or low.get("activity") or
                   next((c for c in df.columns if df[c].dtype == object), df.columns[0]))
 
-    # Area selection with unit normalization
     area_m2 = (low.get("areaend_m2") or low.get("area_m2") or low.get("area") or
                low.get("areaend_m") or low.get("aream2"))
     area_ha = low.get("areaend_ha") or low.get("area_ha")
@@ -203,12 +225,7 @@ def load_land_use(h3_index: str, position: str):
 
     out = pd.DataFrame()
     out["TagValue"] = df[tagval_col].astype(str)
-
-    if tagkey_col:
-        out["TagKey"] = df[tagkey_col].astype(str)
-    else:
-        # If no TagKey, try a heuristic: if a 'key' column exists or infer natural/landuse by common names
-        out["TagKey"] = ""
+    out["TagKey"] = df[tagkey_col].astype(str) if tagkey_col else ""
 
     if area_m2:
         out["AreaEnd_m2"] = pd.to_numeric(df[area_m2], errors="coerce").fillna(0)
@@ -220,17 +237,16 @@ def load_land_use(h3_index: str, position: str):
         guess = next((c for c in df.columns if "area" in c.lower() and pd.api.types.is_numeric_dtype(df[c])), None)
         out["AreaEnd_m2"] = pd.to_numeric(df[guess], errors="coerce").fillna(0) if guess else 0.0
 
-    # -------- natural filter --------
-    key_norm = out["TagKey"].map(_norm_txt)
-    val_norm = out["TagValue"].map(_norm_txt)
-    mask_natural = (key_norm == "natural") & (val_norm.isin(NATURAL_EXCLUDE))
+    # ---- natural filter (drop) ----
+    key_norm = out["TagKey"].map(_norm) if "TagKey" in out.columns else pd.Series("", index=out.index)
+    val_norm = out["TagValue"].map(_norm)
+    mask_natural = ((key_norm == "natural") & (val_norm.isin(NATURAL_EXCLUDE))) | \
+                   (("TagKey" not in out.columns) & (val_norm.isin(NATURAL_EXCLUDE)))
     out = out.loc[~mask_natural].copy()
 
     return out, f
 
-
-
-# ---------- Environmental risks ----------
+# ---------------- Environmental risks ----------------
 def load_environmental_risks(h3_index: str, position: str) -> Tuple[pd.DataFrame, Optional[Path]]:
     fh3 = ENV_RISK_FILE_BY_H3(h3_index)
     if fh3.exists():
@@ -240,7 +256,7 @@ def load_environmental_risks(h3_index: str, position: str) -> Tuple[pd.DataFrame
         return pd.read_csv(fpos), fpos
     return pd.DataFrame(), None
 
-# ---------- Environmental/climate time-series ----------
+# ---------------- Environmental/climate time-series ----------------
 def load_env_timeseries(position: str) -> Tuple[pd.DataFrame, Optional[Path]]:
     f = ENV_TIMESERIES_FILE(position)
     if not f.exists():
@@ -273,7 +289,7 @@ def compute_climate_intensity(df: pd.DataFrame, year_min: int, year_max: int) ->
         return float("nan")
     return float(np.mean(means))
 
-# ---------- Aqueduct ----------
+# ---------------- Aqueduct v4 (center only) ----------------
 def parse_label_to_score(label: str) -> float:
     if not isinstance(label, str):
         return np.nan
@@ -326,7 +342,7 @@ def load_aqueduct_center(center_h3: str):
         rows.append({"dimension": nice.get(col, col), "score": score, "label": lbl})
     return pd.DataFrame(rows), f
 
-# ---------- Eco-Integrity (per-hex) ----------
+# ---------------- Eco-Integrity per-hex ----------------
 def load_eco_for_hex(h3_index: str, position: str):
     stems = dict(
         high_integrity=f"high_integrity_{h3_index}_{position}_2022",
@@ -346,7 +362,7 @@ def load_eco_for_hex(h3_index: str, position: str):
             res[key] = (None, None)
     return res
 
-# ---------- FFI across ALL hexes ----------
+# ---------------- FFI across ALL hexes ----------------
 FFI_PAT = re.compile(r"^avg_ffi_(?P<h3>[0-9a-f]+)_(?P<pos>[A-Za-z0-9]+)\.csv$", re.I)
 
 def load_all_avg_ffi() -> Tuple[pd.DataFrame, List[Path]]:
@@ -385,9 +401,7 @@ def load_all_avg_ffi() -> Tuple[pd.DataFrame, List[Path]]:
     out["year"] = out["year"].astype(int)
     return out[["h3_index", "position", "year", "value"]], paths
 
-# ===== Activities → Pressures (Excel) =====
-
-# 13 pressure dimensions (exact labels)
+# ---------------- Activity → Pressure (Excel, wide) ----------------
 PRESSURE_COLS = [
     "Area of freshwater use",
     "Area of land use",
@@ -404,12 +418,9 @@ PRESSURE_COLS = [
     "Volume of water use",
 ]
 
-
-# -------------------------------------------------------
-# Extended synonyms (OSM-ish) — activities + natural terms
-# -------------------------------------------------------
+# Excel-aligned activity synonyms (extend/keep as needed)
 SYNONYMS = {
-    # --- Buildings / real estate ---
+    # Buildings / real estate
     "residential": "Residential buildings",
     "residential buildings": "Residential buildings",
     "housing": "Residential buildings",
@@ -420,204 +431,122 @@ SYNONYMS = {
     "infrastructure": "Infrastructure",
     "roads": "Infrastructure",
     "bridge": "Infrastructure",
+    "square": "Infrastructure",
     "cement": "Cement & Concrete Production",
     "concrete": "Cement & Concrete Production",
     "cement_plant": "Cement & Concrete Production",
     "real estate": "Real Estate Development & Management",
     "real estate development": "Real Estate Development & Management",
     "real estate management": "Real Estate Development & Management",
-    # Land / buildings / commerce
-    "residential": "Residential buildings",
-    "residential buildings": "Residential buildings",
-    "commercial": "Commercial Buildings",
-    "commercial buildings": "Commercial Buildings",
-    "square": "Infrastructure",        # or "Commercial Buildings" if that’s how you treat squares
 
-    # Agriculture & related
+    # Food & agriculture
     "farmland": "Crop Farming",
     "landuse=farmland": "Crop Farming",
     "farming": "Crop Farming",
     "agriculture": "Crop Farming",
-    "meadow": "Livestock",       
-    "farmyard": "Crop Farming",    
-
-    # --- Energy ---
-    "oil": "Oil & Gas",
-    "gas": "Oil & Gas",
-    "oil & gas": "Oil & Gas",
-    "coal": "Coal Mining & Power",
-    "coal mining": "Coal Mining & Power",
-    "coal power": "Coal Mining & Power",
-    "windfarm": "Wind Energy",
-    "wind-farm": "Wind Energy",
-    "wind energy": "Wind Energy",
-    "solar": "Solar Energy",
-    "solar farm": "Solar Energy",
-    "hydro": "Hydro Energy",
-    "hydropower": "Hydro Energy",
-    "dam": "Hydro Energy",
-    "biomass": "Biomass Energy",
-    "biogas": "Biomass Energy",
-    "water supply": "Water Supply",
-    "electricity": "Electricity Grids",
-    "electricity grid": "Electricity Grids",
-    "grid": "Electricity Grids",
-
-    # --- Finance ---
-    "bank": "Banks",
-    "banks": "Banks",
-    "asset manager": "Asset Managers",
-    "asset managers": "Asset Managers",
-    "insurer": "Insurers",
-    "insurance": "Insurers",
-
-    # --- Food & agriculture ---
     "crop": "Crop Farming",
-    "farming": "Crop Farming",
-    "agriculture": "Crop Farming",
+    "meadow": "Livestock",
+    "farmyard": "Crop Farming",
+    "orchard": "Crop Farming",  # map elsewhere if you add a dedicated column
+
+    # Energy
+    "oil": "Oil & Gas", "gas": "Oil & Gas", "oil & gas": "Oil & Gas",
+    "coal": "Coal Mining & Power", "coal mining": "Coal Mining & Power", "coal power": "Coal Mining & Power",
+    "wind": "Wind Energy", "windfarm": "Wind Energy", "wind farm": "Wind Energy",
+    "solar": "Solar Energy", "solar farm": "Solar Energy", "photovoltaic": "Solar Energy",
+    "hydro": "Hydro Energy", "hydropower": "Hydro Energy", "dam": "Hydro Energy",
+    "biomass": "Biomass Energy", "biogas": "Biomass Energy",
+    "water supply": "Water Supply",
+    "electricity": "Electricity Grids", "electricity grid": "Electricity Grids", "grid": "Electricity Grids",
+
+    # Finance
+    "bank": "Banks", "banks": "Banks",
+    "asset manager": "Asset Managers", "asset managers": "Asset Managers",
+    "insurer": "Insurers", "insurance": "Insurers",
+
+    # Food chain
     "livestock": "Livestock",
-    "cattle": "Livestock",
-    "poultry": "Livestock",
-    "aquaculture": "Aquaculture & Fisheries",
-    "fisheries": "Aquaculture & Fisheries",
-    "fish farm": "Aquaculture & Fisheries",
+    "aquaculture": "Aquaculture & Fisheries", "fisheries": "Aquaculture & Fisheries", "fish farm": "Aquaculture & Fisheries",
     "food processing": "Food Processing",
-    "slaughterhouse": "Food Processing",
     "food packaging": "Food Packaging",
-    "packaging": "Food Packaging",
-    "supermarket": "Supermarkets",
-    "supermarkets": "Supermarkets",
-    "food delivery": "Food Delivery",
-    "delivery": "Food Delivery",
+    "supermarket": "Supermarkets", "supermarkets": "Supermarkets",
+    "food delivery": "Food Delivery", "delivery": "Food Delivery",
 
-    # --- Forestry ---
-    "logging": "Logging & Timber Products",
-    "timber": "Logging & Timber Products",
-    "pulp": "Pulp & Paper Production",
-    "paper": "Pulp & Paper Production",
-    "forest": "Forest Management & Plantations",
-    "forestry": "Forest Management & Plantations",
-    "plantation": "Forest Management & Plantations",
+    # Forestry
+    "logging": "Logging & Timber Products", "timber": "Logging & Timber Products",
+    "pulp": "Pulp & Paper Production", "paper": "Pulp & Paper Production",
+    "forest": "Forest Management & Plantations", "forestry": "Forest Management & Plantations", "plantation": "Forest Management & Plantations",
 
-    # --- Health / pharma ---
-    "drug": "Drug Manufacturing",
-    "pharma": "Drug Manufacturing",
+    # Health / pharma
+    "drug": "Drug Manufacturing", "pharma": "Drug Manufacturing",
     "medical devices": "Medical Devices",
-    "hospital": "Hospitals & Clinics",
-    "clinic": "Hospitals & Clinics",
+    "hospital": "Hospitals & Clinics", "clinic": "Hospitals & Clinics",
     "veterinary": "Veterinary medicine",
-    "diagnostic": "Diagnostics & laboratories",
-    "laboratory": "Diagnostics & laboratories",
-    "distribution": "Distribution & wholesale of medicines",
-    "pharmacy": "Pharmacies & retail",
-    "pharmacies": "Pharmacies & retail",
+    "diagnostic": "Diagnostics & laboratories", "laboratory": "Diagnostics & laboratories",
+    "distribution & wholesale of medicines": "Distribution & wholesale of medicines",
+    "pharmacy": "Pharmacies & retail", "pharmacies": "Pharmacies & retail",
     "biopharma": "R&D in biopharma",
 
-    # --- Industry / manufacturing ---
-    "chemical": "Chemicals",
-    "chemicals": "Chemicals",
-    "petrochemical": "Petrochemicals",
-    "petrochemicals": "Petrochemicals",
-    "metals": "Metals",
-    "metal": "Metals",
+    # Industry / manufacturing
+    "chemical": "Chemicals", "chemicals": "Chemicals",
+    "petrochemical": "Petrochemicals", "petrochemicals": "Petrochemicals",
+    "metals": "Metals", "metal": "Metals",
     "mining": "Mining",
     "textile": "Textiles",
-    "apparel": "Apparel",
-    "clothing": "Apparel",
-    "automotive": "Automotive & Machinery",
-    "machinery": "Automotive & Machinery",
+    "apparel": "Apparel", "clothing": "Apparel",
+    "automotive": "Automotive & Machinery", "machinery": "Automotive & Machinery",
 
-    # --- ICT ---
+    # ICT
     "software": "Software Development",
     "data": "Data Science",
     "cyber": "Cybersecurity",
     "cloud": "Cloud Computing",
-    "ai": "Artificial Intelligence",
-    "artificial intelligence": "Artificial Intelligence",
+    "ai": "Artificial Intelligence", "artificial intelligence": "Artificial Intelligence",
     "network": "Network Infrastructure",
     "wireless": "Wireless Communications",
     "telecom": "Telecom Engineering",
     "collaboration": "Collaboration Tools",
 
-    # --- Transport ---
-    "airline": "Airlines",
-    "cruise": "Cruise Lines",
-    "rail": "Rail Services",
-    "car rental": "Car Rentals",
-    "bus": "Bus Services",
-    "private vehicle": "Private Vehicles",
+    # Transport
+    "airline": "Airlines", "airlines": "Airlines",
+    "cruise": "Cruise Lines", "cruise lines": "Cruise Lines",
+    "rail": "Rail Services", "rail services": "Rail Services",
+    "car rental": "Car Rentals", "car rentals": "Car Rentals",
+    "bus": "Bus Services", "bus services": "Bus Services",
+    "private vehicle": "Private Vehicles", "private vehicles": "Private Vehicles",
     "micromobility": "Micromobility",
-    "rideshare": "Ridesharing",
-    "ridesharing": "Ridesharing",
+    "rideshare": "Ridesharing", "ridesharing": "Ridesharing",
     "car leasing": "Car Leasing",
-    "aviation alternative": "Aviation Alternatives",
-    "navigation": "Navigation Apps",
-    "travel": "Travel Planning Tools",
-    "fuel": "Fuel/Charging Networks",
-    "charging": "Fuel/Charging Networks",
-    "insurance app": "Insurance Apps",
+    "aviation alternative": "Aviation Alternatives", "aviation alternatives": "Aviation Alternatives",
+    "navigation": "Navigation Apps", "navigation apps": "Navigation Apps",
+    "travel planning tools": "Travel Planning Tools",
+    "fuel": "Fuel/Charging Networks", "charging": "Fuel/Charging Networks", "fuel/charging networks": "Fuel/Charging Networks",
+    "insurance app": "Insurance Apps", "insurance apps": "Insurance Apps",
 
-    # --- Logistics ---
-    "shipping": "Shipping & Ports",
-    "port": "Shipping & Ports",
-    "ports": "Shipping & Ports",
-    "trucking": "Trucking & Freight",
-    "freight": "Trucking & Freight",
-    "warehousing": "Warehousing & Distribution",
-    "distribution": "Warehousing & Distribution",
+    # Logistics
+    "shipping": "Shipping & Ports", "port": "Shipping & Ports", "ports": "Shipping & Ports",
+    "trucking": "Trucking & Freight", "freight": "Trucking & Freight",
+    "warehousing": "Warehousing & Distribution", "distribution": "Warehousing & Distribution",
 
-    # --- Health & wellness ---
-    "gym": "Gyms & Fitness Clubs",
-    "fitness": "Gyms & Fitness Clubs",
-    "yoga": "Yoga & Pilates Studios",
-    "pilates": "Yoga & Pilates Studios",
-    "spa": "Spas, retreats, thermal baths",
-    "retreat": "Spas, retreats, thermal baths",
-    "thermal": "Spas, retreats, thermal baths",
+    # Health & wellness
+    "gym": "Gyms & Fitness Clubs", "fitness": "Gyms & Fitness Clubs",
+    "yoga": "Yoga & Pilates Studios", "pilates": "Yoga & Pilates Studios",
+    "spa": "Spas, retreats, thermal baths", "retreat": "Spas, retreats, thermal baths", "thermal": "Spas, retreats, thermal baths",
     "holistic": "Holistic Health",
-    "personal care": "Personal Care Products (Supplements)",
-    "supplement": "Personal Care Products (Supplements)",
-    "meditation": "Meditation & Mindfulness apps",
-    "mindfulness": "Meditation & Mindfulness apps",
+    "personal care": "Personal Care Products (Supplements)", "supplement": "Personal Care Products (Supplements)",
+    "meditation": "Meditation & Mindfulness apps", "mindfulness": "Meditation & Mindfulness apps",
 }
 
-
-NATURAL_EXCLUDE = {
-    "wood","nature_reserve","bare_rock","scrub",
-    "plateau","heath","orchard","ridge","water","valley",
-    "grass","cliff","pitch","wetland",
-}
-
-def _norm(s: str) -> str:
-    if not isinstance(s, str): return ""
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = s.lower()
-    s = re.sub(r"[^\w\s]", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
+def _normalize_activity_name(s: str) -> str:
+    base = _norm(s)
+    return SYNONYMS.get(base, base)
 
 def _find_activity_excel(default_path: Path) -> Path | None:
     if default_path and default_path.exists():
         return default_path
-    # try common variants in repo root
     cands = list(Path(".").glob("*.xlsx"))
     pref = [p for p in cands if "biomet" in p.name.lower()]
     return (pref[0] if pref else (cands[0] if cands else None))
-    
-def _norm_str(s: str) -> str:
-    if not isinstance(s, str):
-        return ""
-    s = _unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not _unicodedata.combining(ch))
-    s = s.lower()
-    s = _re.sub(r"[^\w\s]", " ", s)
-    s = _re.sub(r"\s+", " ", s).strip()
-    return s
-
-def _normalize_activity_name(s: str) -> str:
-    base = _norm_str(s)
-    return SYNONYMS.get(base, base)
 
 def _fuzzy_match_norm(q_norm: str, choices_norm: list[str], cutoff: int = 85) -> str | None:
     if not _HAS_FUZZ or not q_norm or not choices_norm:
@@ -625,22 +554,15 @@ def _fuzzy_match_norm(q_norm: str, choices_norm: list[str], cutoff: int = 85) ->
     hit = _rf_process.extractOne(q_norm, choices_norm, scorer=_rf_fuzz.token_sort_ratio, score_cutoff=cutoff)
     return hit[0] if hit else None
 
-# IMPORTANT: this replaces the earlier "load_activity_pressure_matrix_with_businesses"
 def load_activity_pressure_matrix_with_businesses() -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Excel layout handled here:
+    Excel wide layout:
+      - Columns = activity names,
+      - First column = the 13 pressure labels,
       - One sheet per sector.
-      - COLUMN HEADERS are activity names (e.g., 'Residential buildings', 'Wind Energy', ...).
-      - FIRST COLUMN contains the 13 pressure row labels.
-      - The numeric cells are the intensity/value (0..1) for [pressure, activity].
-    Returns:
-      matrix_df: ['Sector','Activity','Activity_norm'] + PRESSURE_COLS
-      business_df: empty placeholder (kept for shape compatibility)
     """
-    from data_config import ACTIVITY_PRESSURE_FILE  # your configured Path
     xls_path = _find_activity_excel(ACTIVITY_PRESSURE_FILE)
     if xls_path is None or not Path(xls_path).exists():
-        # No Excel: return empty (app will show areas but no pressures)
         return (pd.DataFrame(columns=["Sector","Activity","Activity_norm"] + PRESSURE_COLS),
                 pd.DataFrame(columns=["Sector","Activity","Activity_norm","Business"]))
 
@@ -651,43 +573,28 @@ def load_activity_pressure_matrix_with_businesses() -> tuple[pd.DataFrame, pd.Da
         if df is None or df.empty:
             continue
 
-        # Identify the column that holds pressure labels.
-        # Heuristic: choose the first column whose normalized values intersect PRESSURE_COLS a lot
-        best_col = None
-        best_hits = -1
+        # pick the column most likely to be the pressure names
+        best_col, best_hits = None, -1
+        canon_norms = {_norm(p) for p in PRESSURE_COLS}
         for c in df.columns:
             vals = pd.Series(df[c]).astype(str).map(_norm)
-            hits = sum(v in {_norm(p) for p in PRESSURE_COLS} for v in vals)
+            hits = sum(v in canon_norms for v in vals)
             if hits > best_hits:
-                best_hits = hits
-                best_col = c
-
+                best_hits, best_col = hits, c
         if best_col is None or best_hits <= 0:
-            continue  # sheet does not look like a pressure matrix
-
-        # Build a normalized pressure-name column
-        df = df.copy()
-        df["_pressure_norm"] = df[best_col].astype(str).map(_norm)
-
-        # Keep only the 13 known rows
-        keep_norms = {_norm(p) for p in PRESSURE_COLS}
-        df = df[df["_pressure_norm"].isin(keep_norms)]
-        if df.empty:
             continue
 
-        # Ensure we have exactly one row per pressure; if duplicates, take first
-        df = df.drop_duplicates(subset=["_pressure_norm"], keep="first")
+        df = df.copy()
+        df["_pressure_norm"] = df[best_col].astype(str).map(_norm)
+        df = df[df["_pressure_norm"].isin(canon_norms)].drop_duplicates("_pressure_norm", keep="first")
 
-        # Reindex to the canonical order
         norm_to_label = {_norm(p): p for p in PRESSURE_COLS}
         df["PressureLabel"] = df["_pressure_norm"].map(norm_to_label)
         df = df.set_index("PressureLabel").reindex(PRESSURE_COLS)
 
-        # Every other column is an activity column
         activity_cols = [c for c in df.columns if c not in [best_col, "_pressure_norm"]]
         for act_col in activity_cols:
             act_name = str(act_col).strip()
-            # coerce numbers; leave NaN if empty
             vals = pd.to_numeric(df[act_col], errors="coerce")
             rec = {"Sector": sector, "Activity": act_name, "Activity_norm": _norm(act_name)}
             for p, v in zip(PRESSURE_COLS, vals.values.tolist()):
@@ -696,20 +603,15 @@ def load_activity_pressure_matrix_with_businesses() -> tuple[pd.DataFrame, pd.Da
 
     matrix_df = pd.DataFrame(rows)
     if not matrix_df.empty:
-        # Clip to [0,1] if your Excel uses that scale; drop if wildly outside
         for p in PRESSURE_COLS:
-            matrix_df[p] = pd.to_numeric(matrix_df[p], errors="coerce")
-            matrix_df[p] = matrix_df[p].clip(lower=0, upper=1)
+            matrix_df[p] = pd.to_numeric(matrix_df[p], errors="coerce").clip(lower=0, upper=1)
 
-    # No per-activity "business" flags in wide layout; return empty placeholder
     business_df = pd.DataFrame(columns=["Sector","Activity","Activity_norm","Business"])
     return matrix_df, business_df
 
-
-def filter_land_use_to_activities(landuse_df: _pd.DataFrame, matrix_df: _pd.DataFrame) -> _pd.DataFrame:
-    """Match land-use TagValue rows to Excel activities (robust: normalize + synonyms + optional fuzzy)."""
+def filter_land_use_to_activities(landuse_df: pd.DataFrame, matrix_df: pd.DataFrame) -> pd.DataFrame:
     if landuse_df is None or landuse_df.empty or matrix_df is None or matrix_df.empty:
-        return _pd.DataFrame(columns=["TagValue","AreaEnd_m2","Sector","Activity","Activity_norm"] + PRESSURE_COLS)
+        return pd.DataFrame(columns=["TagValue","AreaEnd_m2","Sector","Activity","Activity_norm"] + PRESSURE_COLS)
 
     df = landuse_df.copy()
     df["TagValue"] = df["TagValue"].astype(str)
@@ -738,7 +640,7 @@ def filter_land_use_to_activities(landuse_df: _pd.DataFrame, matrix_df: _pd.Data
     return merged[keep].copy()
 
 def aggregate_activities_all_grids(cells_df: pd.DataFrame) -> pd.DataFrame:
-    mdf, _bdf = load_activity_pressure_matrix_with_businesses()
+    mdf, _ = load_activity_pressure_matrix_with_businesses()
 
     parts = []
     for _, r in cells_df.iterrows():
@@ -746,68 +648,88 @@ def aggregate_activities_all_grids(cells_df: pd.DataFrame) -> pd.DataFrame:
         lu_df, _ = load_land_use(h3i, pos)
         if lu_df.empty:
             continue
-        # keep only real activities via synonyms + Excel activities
         filt = filter_land_use_to_activities(lu_df, mdf) if not mdf.empty else pd.DataFrame()
-        parts.append(filt if not filt.empty else lu_df.assign(Activity_norm=lu_df["TagValue"].map(_norm)))
+        if not filt.empty:
+            parts.append(filt)
+        else:
+            # fallback: still keep TagValue with normalized name to aggregate area
+            tmp = lu_df.copy()
+            tmp["Activity_norm"] = tmp["TagValue"].map(_normalize_activity_name)
+            parts.append(tmp[["TagValue","AreaEnd_m2","Activity_norm"]])
 
     if not parts:
         return pd.DataFrame(columns=["Activity","TotalArea_m2","Activity_norm"] + PRESSURE_COLS)
 
     all_lu = pd.concat(parts, ignore_index=True)
 
-    # Sum area by (normalized) activity
-    grouped = (all_lu
-               .assign(Activity=all_lu.get("Activity", all_lu["TagValue"]))
-               .groupby(["Activity_norm","Activity"], as_index=False)
-               .agg(TotalArea_m2=("AreaEnd_m2","sum")))
+    # Safety: ensure excluded naturals never appear in Activities table
+    if "TagValue" in all_lu.columns:
+        all_lu = all_lu[~all_lu["TagValue"].map(_norm).isin(NATURAL_EXCLUDE)].copy()
 
-    # Attach pressures from Excel by Activity_norm
+    # Aggregate area by normalized activity
+    if "Activity" not in all_lu.columns:
+        all_lu["Activity"] = all_lu["TagValue"]
+
+    grouped = (all_lu
+               .groupby(["Activity_norm"], as_index=False)
+               .agg(TotalArea_m2=("AreaEnd_m2","sum"),
+                    Activity=("Activity", lambda s: s.iloc[0] if len(s) else "")))
+
+    # Attach pressures
     out = grouped.merge(
         mdf.drop_duplicates(subset=["Activity_norm"])[["Activity_norm"] + PRESSURE_COLS],
         how="left", on="Activity_norm"
-    )
+    ).sort_values(["TotalArea_m2","Activity"], ascending=[False, True]).reset_index(drop=True)
 
-    # Order by area
-    out = out.sort_values(["TotalArea_m2","Activity"], ascending=[False, True]).reset_index(drop=True)
     return out
 
-
-    # ---- FALLBACK (no matches) ----
-    # Group raw land-use by TagValue across all grids so the page still shows something.
-    # Pressures remain NaN; you can still pick an activity but the widget will be empty.
-    lu_rows = []
-    for _, r in cells_df.iterrows():
-        h3i, pos = r["h3_index"], r["position"]
-        lu_df, _ = load_land_use(h3i, pos)
-        if lu_df.empty:
-            continue
-        lu_rows.append(lu_df[["TagValue","AreaEnd_m2"]])
-    if not lu_rows:
-        return pd.DataFrame(columns=["Activity","TotalArea_m2","Sectors","Businesses"] + PRESSURE_COLS)
-
-    all_lu = pd.concat(lu_rows, ignore_index=True)
-    agg = (all_lu.groupby("TagValue")
-                 .agg(TotalArea_m2=("AreaEnd_m2","sum"))
-                 .reset_index())
-    agg["Activity"] = agg["TagValue"]
-    agg["Sectors"] = ""
-    agg["Businesses"] = ""
-    agg["Activity_norm"] = agg["Activity"].apply(_normalize_activity_name)
-    # add the pressure columns as NaN
-    for p in PRESSURE_COLS:
-        agg[p] = np.nan
-    agg = agg[["Activity","TotalArea_m2","Sectors","Businesses","Activity_norm"] + PRESSURE_COLS]
-    agg = agg.sort_values(["TotalArea_m2","Activity"], ascending=[False, True]).reset_index(drop=True)
-    return agg
-
-
-def get_activity_row(all_activities_df: _pd.DataFrame, activity_name: str) -> _pd.Series | None:
-    """Find a single activity row by normalized name (fallback to exact Activity)."""
+def get_activity_row(all_activities_df: pd.DataFrame, activity_name: str) -> pd.Series | None:
     if all_activities_df is None or all_activities_df.empty:
         return None
     norm = _normalize_activity_name(activity_name)
     m = all_activities_df[all_activities_df["Activity_norm"] == norm]
-    if len(m): 
+    if len(m):
         return m.iloc[0]
     m = all_activities_df[all_activities_df["Activity"] == activity_name]
     return m.iloc[0] if len(m) else None
+
+# ---------------- Land-cover class name maps (GLC-FCS30D & Dynamic World) ----------------
+GLC_NAMES = {
+    10:"Rainfed cropland", 11:"Herbaceous cover cropland", 12:"Tree/shrub (orchard) cropland",
+    20:"Irrigated cropland",
+    51:"Open evergreen broadleaved forest", 52:"Closed evergreen broadleaved forest",
+    61:"Open deciduous broadleaved forest", 62:"Closed deciduous broadleaved forest",
+    71:"Open needleleaved evergreen forest", 72:"Closed needleleaved evergreen forest",
+    81:"Open mixed-leaf forest", 82:"Closed mixed-leaf forest",
+    91:"Open needleleaved deciduous forest", 92:"Closed needleleaved deciduous forest",
+    120:"Shrubland", 121:"Evergreen shrubland", 122:"Deciduous shrubland",
+    130:"Grassland", 140:"Lichen/moss",
+    150:"Sparse vegetation", 152:"Sparse shrubland", 153:"Sparse herbaceous",
+    181:"Wetland", 182:"Marshland", 183:"Peatland", 184:"Bog",
+    185:"Mangroves", 186:"Swamp", 187:"Fen",
+    190:"Artificial surfaces (urban/built-up)",
+    200:"Bare areas", 201:"Rocky", 202:"Sandy",
+    210:"Water bodies", 220:"Snow & Ice",
+    0:"Unclassified", 250:"No data"
+}
+DW_NAMES = {
+    0:"Water", 1:"Trees", 2:"Grass", 3:"Flooded vegetation", 4:"Crops",
+    5:"Shrub & scrub", 6:"Built area", 7:"Bare ground", 8:"Snow & ice"
+}
+
+def lc_class_name(cls_val, src_tag: str, year: int) -> str:
+    """Map numeric class to name using tag/year heuristic:
+       - If tag says 'glc_fcs30d' → GLC
+       - Else if year >= 2023 → Dynamic World
+       - Else fallback to GLC.
+    """
+    try:
+        c = int(cls_val)
+    except Exception:
+        return str(cls_val)
+    tag = (src_tag or "").lower()
+    if "glc" in tag:
+        return GLC_NAMES.get(c, f"Class {c}")
+    if year >= 2023:
+        return DW_NAMES.get(c, f"Class {c}")
+    return GLC_NAMES.get(c, f"Class {c}")
