@@ -269,7 +269,7 @@ def load_aqueduct_center(center_h3: str):
         return pd.DataFrame(), None
     df = pd.read_csv(f)
     keep = [
-        "water_stress_value",
+        "water_stress_label",
         "water_depletion_label",
         "riverine_flood_risk_label",
         "drought_risk_label",
