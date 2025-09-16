@@ -9,17 +9,23 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Polygon
 import h3
+from pathlib import Path as _Path
+import pandas as _pd
+import numpy as _np
+import unicodedata as _unicodedata, re as _re
+
+from data_config import ACTIVITY_PRESSURE_FILE as _ACT_FILE
 
 from data_config import (
     ROOT, GIT_BASE_URL, RES, CENTER, H3_LIST_FILE,
     BIODIVERSITY_METRICS, SPECIES_FILE, LAND_USE_FILE,
     ENV_RISK_FILE_BY_H3, ENV_RISK_FILE, ENV_TIMESERIES_FILE, POP_FILE,
-    AQUEDUCT_FILE, LANDCOVER_GLOB, ECO_FILE, WIND_KML, ACTIVITY_PRESSURE_FILE
+    AQUEDUCT_FILE, LANDCOVER_GLOB, ECO_FILE, WIND_KML
 )
 
-# Optional fuzzy matcher
+# fuzzy matcher
 try:
-    from rapidfuzz import process, fuzz
+    from rapidfuzz import process as _rf_process, fuzz as _rf_fuzz
     _HAS_FUZZ = True
 except Exception:
     _HAS_FUZZ = False
@@ -245,7 +251,7 @@ def load_aqueduct_center(center_h3: str):
         return pd.DataFrame(), None
     df = pd.read_csv(f)
     keep = [
-        "water_stress_value",
+        "water_stress_label",
         "water_depletion_label",
         "riverine_flood_risk_label",
         "drought_risk_label",
@@ -255,7 +261,7 @@ def load_aqueduct_center(center_h3: str):
     sub = df[present].iloc[[0]].copy()
     rows = []
     nice = {
-        "water_stress_value": "Water stress",
+        "water_stress_label": "Water stress",
         "water_depletion_label": "Water depletion",
         "riverine_flood_risk_label": "Riverine flood risk",
         "drought_risk_label": "Drought risk",
@@ -328,6 +334,7 @@ def load_all_avg_ffi() -> Tuple[pd.DataFrame, List[Path]]:
 
 # ===== Activities → Pressures (Excel) =====
 
+# 13 pressure dimensions (exact labels)
 PRESSURE_COLS = [
     "Area of freshwater use",
     "Area of land use",
@@ -344,7 +351,7 @@ PRESSURE_COLS = [
     "Volume of water use",
 ]
 
-# Manual synonyms (edit as needed)
+# optional synonyms you can extend
 SYNONYMS = {
     "quarry": "quarrying",
     "quarry extraction": "quarrying",
@@ -355,111 +362,95 @@ SYNONYMS = {
     "tourist services": "tourism services",
 }
 
-def _normalize_str(s: str) -> str:
+def _norm_str(s: str) -> str:
     if not isinstance(s, str):
         return ""
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))  # strip accents
+    s = _unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not _unicodedata.combining(ch))
     s = s.lower()
-    s = re.sub(r"[^\w\s]", " ", s)  # drop punctuation
-    s = re.sub(r"\s+", " ", s).strip()
+    s = _re.sub(r"[^\w\s]", " ", s)
+    s = _re.sub(r"\s+", " ", s).strip()
     return s
 
 def _normalize_activity_name(s: str) -> str:
-    base = _normalize_str(s)
+    base = _norm_str(s)
     return SYNONYMS.get(base, base)
 
-def _fuzzy_match_norm(query_norm: str, choices_norm: list[str], score_cutoff: int = 85) -> str | None:
-    if not _HAS_FUZZ or not choices_norm or not query_norm:
+def _fuzzy_match_norm(q_norm: str, choices_norm: list[str], cutoff: int = 85) -> str | None:
+    if not _HAS_FUZZ or not q_norm or not choices_norm:
         return None
-    match = process.extractOne(
-        query_norm,
-        choices_norm,
-        scorer=fuzz.token_sort_ratio,
-        score_cutoff=score_cutoff,
-    )
-    return match[0] if match else None
+    hit = _rf_process.extractOne(q_norm, choices_norm, scorer=_rf_fuzz.token_sort_ratio, score_cutoff=cutoff)
+    return hit[0] if hit else None
 
-def load_activity_pressure_matrix_with_businesses() -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_activity_pressure_matrix_with_businesses() -> tuple[_pd.DataFrame, _pd.DataFrame]:
     """
-    Read Excel with one sheet per sector.
+    Read 'Biomet répertoire.xlsx' (one sheet per sector).
     Returns:
       matrix_df: ['Sector','Activity','Activity_norm'] + PRESSURE_COLS
       business_df: ['Sector','Activity','Activity_norm','Business']
     """
-    xls = ACTIVITY_PRESSURE_FILE
-    if not xls.exists():
-        return (pd.DataFrame(columns=["Sector","Activity","Activity_norm"] + PRESSURE_COLS),
-                pd.DataFrame(columns=["Sector","Activity","Activity_norm","Business"]))
+    xls = _ACT_FILE
+    if not _Path(xls).exists():
+        return (_pd.DataFrame(columns=["Sector","Activity","Activity_norm"] + PRESSURE_COLS),
+                _pd.DataFrame(columns=["Sector","Activity","Activity_norm","Business"]))
 
-    book = pd.read_excel(xls, sheet_name=None, engine="openpyxl")
+    book = _pd.read_excel(xls, sheet_name=None, engine="openpyxl")
     matrix_rows, business_rows = [], []
 
-    for sector, df in book.items():
+    for sector, df in (book or {}).items():
         if df is None or df.empty:
             continue
         df = df.copy()
-        # find an activity-like column
         cols_lower = {c.lower(): c for c in df.columns}
-        activity_col = None
+        act_col = None
         for k in ["activity", "name", "tagvalue", "class", "land use", "land_use"]:
             if k in cols_lower:
-                activity_col = cols_lower[k]; break
-        if activity_col is None:
+                act_col = cols_lower[k]; break
+        if act_col is None:
             obj_cols = [c for c in df.columns if df[c].dtype == object]
-            if not obj_cols:
+            if not obj_cols: 
                 continue
-            activity_col = obj_cols[0]
+            act_col = obj_cols[0]
 
         present_pressures = [p for p in PRESSURE_COLS if p in df.columns]
-        candidate_business_cols = [c for c in df.columns if c not in [activity_col] + PRESSURE_COLS]
+        biz_cols = [c for c in df.columns if c not in [act_col] + PRESSURE_COLS]
 
         for p in present_pressures:
-            df[p] = pd.to_numeric(df[p], errors="coerce")
+            df[p] = _pd.to_numeric(df[p], errors="coerce")
 
         for _, row in df.iterrows():
-            act_name = str(row[activity_col])
-            act_norm = _normalize_activity_name(act_name)
+            act = str(row[act_col])
+            act_norm = _normalize_activity_name(act)
             if not act_norm:
                 continue
-            rec = {"Sector": sector, "Activity": act_name, "Activity_norm": act_norm}
+            rec = {"Sector": sector, "Activity": act, "Activity_norm": act_norm}
             for p in PRESSURE_COLS:
-                rec[p] = row.get(p, np.nan)
+                rec[p] = row.get(p, _np.nan)
             matrix_rows.append(rec)
 
-            for bc in candidate_business_cols:
-                val = row.get(bc)
-                is_on = False
-                if isinstance(val, (int, float)) and not pd.isna(val):
-                    is_on = float(val) != 0.0
-                elif isinstance(val, str):
-                    is_on = val.strip() not in ("", "0", "nan", "NaN")
-                elif isinstance(val, bool):
-                    is_on = val
-                if is_on:
-                    business_rows.append({
-                        "Sector": sector,
-                        "Activity": act_name,
-                        "Activity_norm": act_norm,
-                        "Business": str(bc)
-                    })
+            # businesses = any truthy/non-zero value in non-pressure columns
+            for bc in biz_cols:
+                v = row.get(bc)
+                ok = False
+                if isinstance(v, (int, float)) and not _pd.isna(v):
+                    ok = float(v) != 0.0
+                elif isinstance(v, str):
+                    ok = v.strip() not in ("", "0", "nan", "NaN")
+                elif isinstance(v, bool):
+                    ok = v
+                if ok:
+                    business_rows.append({"Sector": sector, "Activity": act, "Activity_norm": act_norm, "Business": str(bc)})
 
-    matrix_df = pd.DataFrame(matrix_rows)
-    business_df = pd.DataFrame(business_rows).drop_duplicates() if business_rows else pd.DataFrame(
+    mdf = _pd.DataFrame(matrix_rows)
+    bdf = _pd.DataFrame(business_rows).drop_duplicates() if business_rows else _pd.DataFrame(
         columns=["Sector","Activity","Activity_norm","Business"]
     )
-    return matrix_df, business_df
+    return mdf, bdf
 
-def filter_land_use_to_activities(landuse_df: pd.DataFrame, matrix_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Keep only land-use rows whose TagValue matches an 'Activity' in the matrix.
-    Matching order:
-      1) exact normalized match
-      2) fuzzy match (if rapidfuzz installed; cutoff=85)
-      3) synonyms applied in normalization
-    """
+def filter_land_use_to_activities(landuse_df: _pd.DataFrame, matrix_df: _pd.DataFrame) -> _pd.DataFrame:
+    """Match land-use TagValue rows to Excel activities (robust: normalize + synonyms + optional fuzzy)."""
     if landuse_df is None or landuse_df.empty or matrix_df is None or matrix_df.empty:
-        return pd.DataFrame(columns=["TagValue","AreaEnd_m2","Sector","Activity","Activity_norm"] + PRESSURE_COLS)
+        return _pd.DataFrame(columns=["TagValue","AreaEnd_m2","Sector","Activity","Activity_norm"] + PRESSURE_COLS)
 
     df = landuse_df.copy()
     df["TagValue"] = df["TagValue"].astype(str)
@@ -467,60 +458,57 @@ def filter_land_use_to_activities(landuse_df: pd.DataFrame, matrix_df: pd.DataFr
     m = matrix_df.copy()
     if "Activity_norm" not in m.columns:
         m["Activity_norm"] = m["Activity"].map(_normalize_activity_name)
-    valid_norms = m["Activity_norm"].dropna().unique().tolist()
+    valid = m["Activity_norm"].dropna().unique().tolist()
 
-    matched_norms = []
-    for raw in df["TagValue"].astype(str).tolist():
+    matches = []
+    for raw in df["TagValue"].astype(str):
         q = _normalize_activity_name(raw)
-        if q in valid_norms:
-            matched_norms.append(q)
+        if q in valid:
+            matches.append(q)
         else:
-            best = _fuzzy_match_norm(q, valid_norms, score_cutoff=85)
-            matched_norms.append(best if best else "")
-
-    df["Activity_norm"] = matched_norms
+            best = _fuzzy_match_norm(q, valid, cutoff=85)
+            matches.append(best if best else "")
+    df["Activity_norm"] = matches
     df = df[df["Activity_norm"] != ""].copy()
 
     merged = df.merge(
         m[["Sector","Activity","Activity_norm"] + PRESSURE_COLS].drop_duplicates(),
-        how="inner",
-        on="Activity_norm"
+        how="inner", on="Activity_norm"
     )
     keep = ["TagValue","AreaEnd_m2","Sector","Activity","Activity_norm"] + PRESSURE_COLS
     return merged[keep].copy()
 
-def aggregate_activities_all_grids(cells_df: pd.DataFrame) -> pd.DataFrame:
+def aggregate_activities_all_grids(cells_df: _pd.DataFrame) -> _pd.DataFrame:
     """
-    Load land-use for all grids, keep only activities (via matrix),
-    group by Activity across ALL grids (sum AreaEnd_m2), attach Sectors & Businesses,
-    and keep one set of pressure values per Activity.
+    Across ALL grids: land-use → keep activities; group by Activity name (sum AreaEnd_m2);
+    attach Sectors/Businesses and one set of pressure values per Activity.
     """
-    matrix_df, business_df = load_activity_pressure_matrix_with_businesses()
-    if matrix_df.empty:
-        return pd.DataFrame(columns=["Activity","TotalArea_m2","Sectors","Businesses"] + PRESSURE_COLS)
+    mdf, bdf = load_activity_pressure_matrix_with_businesses()
+    if mdf.empty:
+        return _pd.DataFrame(columns=["Activity","TotalArea_m2","Sectors","Businesses"] + PRESSURE_COLS)
 
-    rows = []
+    parts = []
     for _, r in cells_df.iterrows():
         h3i, pos = r["h3_index"], r["position"]
-        lu_df, _ = load_land_use(h3i, pos)
+        lu_df, _ = load_land_use(h3i, pos)  # your existing function
         if lu_df.empty:
             continue
-        filt = filter_land_use_to_activities(lu_df, matrix_df)
+        filt = filter_land_use_to_activities(lu_df, mdf)
         if not filt.empty:
-            rows.append(filt)
+            parts.append(filt)
 
-    if not rows:
-        return pd.DataFrame(columns=["Activity","TotalArea_m2","Sectors","Businesses"] + PRESSURE_COLS)
+    if not parts:
+        return _pd.DataFrame(columns=["Activity","TotalArea_m2","Sectors","Businesses"] + PRESSURE_COLS)
 
-    all_lu = pd.concat(rows, ignore_index=True)
+    all_lu = _pd.concat(parts, ignore_index=True)
 
     agg_area = (all_lu.groupby(["Activity_norm","TagValue"])
                       .agg(TotalArea_m2=("AreaEnd_m2","sum"))
                       .reset_index())
 
-    pressures = (matrix_df.sort_values("Sector")
-                 .drop_duplicates(subset=["Activity_norm"])
-                 [["Activity_norm","Activity"] + PRESSURE_COLS])
+    pressures = (mdf.sort_values("Sector")
+                   .drop_duplicates(subset=["Activity_norm"])
+                   [["Activity_norm","Activity"] + PRESSURE_COLS])
 
     out = agg_area.merge(pressures, how="left", on="Activity_norm")
 
@@ -529,8 +517,8 @@ def aggregate_activities_all_grids(cells_df: pd.DataFrame) -> pd.DataFrame:
                .reset_index().rename(columns={"Sector":"Sectors"}))
     out = out.merge(sectors, how="left", on="Activity_norm")
 
-    if not business_df.empty:
-        biz = (business_df.groupby("Activity_norm")["Business"]
+    if not bdf.empty:
+        biz = (bdf.groupby("Activity_norm")["Business"]
                .agg(lambda s: sorted(set(map(str, s))))
                .reset_index().rename(columns={"Business":"Businesses"}))
         out = out.merge(biz, how="left", on="Activity_norm")
@@ -545,11 +533,13 @@ def aggregate_activities_all_grids(cells_df: pd.DataFrame) -> pd.DataFrame:
     out = out.sort_values(["TotalArea_m2","Activity"], ascending=[False, True]).reset_index(drop=True)
     return out
 
-def get_activity_row(all_activities_df: pd.DataFrame, activity_name: str) -> pd.Series | None:
+def get_activity_row(all_activities_df: _pd.DataFrame, activity_name: str) -> _pd.Series | None:
+    """Find a single activity row by normalized name (fallback to exact Activity)."""
     if all_activities_df is None or all_activities_df.empty:
         return None
     norm = _normalize_activity_name(activity_name)
     m = all_activities_df[all_activities_df["Activity_norm"] == norm]
-    if len(m): return m.iloc[0]
+    if len(m): 
+        return m.iloc[0]
     m = all_activities_df[all_activities_df["Activity"] == activity_name]
     return m.iloc[0] if len(m) else None
