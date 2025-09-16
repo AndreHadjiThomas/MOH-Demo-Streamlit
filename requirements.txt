@@ -6,3 +6,4 @@ plotly
 geopandas
 shapely
 h3
+openpyxl
