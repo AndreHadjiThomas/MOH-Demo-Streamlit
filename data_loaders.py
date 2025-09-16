@@ -561,9 +561,7 @@ NATURAL_EXCLUDE = {
     "grass","meadow","commercial","cliff","pitch","square","wetland",
 }
 
-def _norm_txt(s: str) -> str:
-    # small normalizer for TagKey/TagValue comparisons
-    import unicodedata, re
+def _norm(s: str) -> str:
     if not isinstance(s, str): return ""
     s = unicodedata.normalize("NFKD", s)
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
@@ -572,19 +570,13 @@ def _norm_txt(s: str) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
-def _find_activity_excel(default_path: Path) -> Optional[Path]:
-    """Return a usable Excel path. Tries the configured file, else searches repo root for *biomet*.xlsx."""
+def _find_activity_excel(default_path: Path) -> Path | None:
     if default_path and default_path.exists():
         return default_path
-    candidates = list(Path(".").glob("*.xlsx"))
-    # Prefer files that look like the Biomet repertoire
-    preferred = [p for p in candidates if "biomet" in p.name.lower() and "répertoire" in p.name.lower()]
-    if preferred:
-        return preferred[0]
-    generic = [p for p in candidates if "biomet" in p.name.lower()]
-    if generic:
-        return generic[0]
-    return default_path if default_path.exists() else None
+    # try common variants in repo root
+    cands = list(Path(".").glob("*.xlsx"))
+    pref = [p for p in cands if "biomet" in p.name.lower()]
+    return (pref[0] if pref else (cands[0] if cands else None))
     
 def _norm_str(s: str) -> str:
     if not isinstance(s, str):
@@ -606,70 +598,86 @@ def _fuzzy_match_norm(q_norm: str, choices_norm: list[str], cutoff: int = 85) ->
     hit = _rf_process.extractOne(q_norm, choices_norm, scorer=_rf_fuzz.token_sort_ratio, score_cutoff=cutoff)
     return hit[0] if hit else None
 
-def load_activity_pressure_matrix_with_businesses() -> tuple[_pd.DataFrame, _pd.DataFrame]:
+# IMPORTANT: this replaces the earlier "load_activity_pressure_matrix_with_businesses"
+def load_activity_pressure_matrix_with_businesses() -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Read 'Biomet répertoire.xlsx' (one sheet per sector).
+    Excel layout handled here:
+      - One sheet per sector.
+      - COLUMN HEADERS are activity names (e.g., 'Residential buildings', 'Wind Energy', ...).
+      - FIRST COLUMN contains the 13 pressure row labels.
+      - The numeric cells are the intensity/value (0..1) for [pressure, activity].
     Returns:
       matrix_df: ['Sector','Activity','Activity_norm'] + PRESSURE_COLS
-      business_df: ['Sector','Activity','Activity_norm','Business']
+      business_df: empty placeholder (kept for shape compatibility)
     """
-    xls = _ACT_FILE
-    if not _Path(xls).exists():
-        return (_pd.DataFrame(columns=["Sector","Activity","Activity_norm"] + PRESSURE_COLS),
-                _pd.DataFrame(columns=["Sector","Activity","Activity_norm","Business"]))
+    from data_config import ACTIVITY_PRESSURE_FILE  # your configured Path
+    xls_path = _find_activity_excel(ACTIVITY_PRESSURE_FILE)
+    if xls_path is None or not Path(xls_path).exists():
+        # No Excel: return empty (app will show areas but no pressures)
+        return (pd.DataFrame(columns=["Sector","Activity","Activity_norm"] + PRESSURE_COLS),
+                pd.DataFrame(columns=["Sector","Activity","Activity_norm","Business"]))
 
-    book = _pd.read_excel(xls, sheet_name=None, engine="openpyxl")
-    matrix_rows, business_rows = [], []
+    book = pd.read_excel(xls_path, sheet_name=None, engine="openpyxl", header=0)
 
+    rows = []
     for sector, df in (book or {}).items():
         if df is None or df.empty:
             continue
+
+        # Identify the column that holds pressure labels.
+        # Heuristic: choose the first column whose normalized values intersect PRESSURE_COLS a lot
+        best_col = None
+        best_hits = -1
+        for c in df.columns:
+            vals = pd.Series(df[c]).astype(str).map(_norm)
+            hits = sum(v in {_norm(p) for p in PRESSURE_COLS} for v in vals)
+            if hits > best_hits:
+                best_hits = hits
+                best_col = c
+
+        if best_col is None or best_hits <= 0:
+            continue  # sheet does not look like a pressure matrix
+
+        # Build a normalized pressure-name column
         df = df.copy()
-        cols_lower = {c.lower(): c for c in df.columns}
-        act_col = None
-        for k in ["activity", "name", "tagvalue", "class", "land use", "land_use"]:
-            if k in cols_lower:
-                act_col = cols_lower[k]; break
-        if act_col is None:
-            obj_cols = [c for c in df.columns if df[c].dtype == object]
-            if not obj_cols: 
-                continue
-            act_col = obj_cols[0]
+        df["_pressure_norm"] = df[best_col].astype(str).map(_norm)
 
-        present_pressures = [p for p in PRESSURE_COLS if p in df.columns]
-        biz_cols = [c for c in df.columns if c not in [act_col] + PRESSURE_COLS]
+        # Keep only the 13 known rows
+        keep_norms = {_norm(p) for p in PRESSURE_COLS}
+        df = df[df["_pressure_norm"].isin(keep_norms)]
+        if df.empty:
+            continue
 
-        for p in present_pressures:
-            df[p] = _pd.to_numeric(df[p], errors="coerce")
+        # Ensure we have exactly one row per pressure; if duplicates, take first
+        df = df.drop_duplicates(subset=["_pressure_norm"], keep="first")
 
-        for _, row in df.iterrows():
-            act = str(row[act_col])
-            act_norm = _normalize_activity_name(act)
-            if not act_norm:
-                continue
-            rec = {"Sector": sector, "Activity": act, "Activity_norm": act_norm}
-            for p in PRESSURE_COLS:
-                rec[p] = row.get(p, _np.nan)
-            matrix_rows.append(rec)
+        # Reindex to the canonical order
+        norm_to_label = {_norm(p): p for p in PRESSURE_COLS}
+        df["PressureLabel"] = df["_pressure_norm"].map(norm_to_label)
+        df = df.set_index("PressureLabel").reindex(PRESSURE_COLS)
 
-            # businesses = any truthy/non-zero value in non-pressure columns
-            for bc in biz_cols:
-                v = row.get(bc)
-                ok = False
-                if isinstance(v, (int, float)) and not _pd.isna(v):
-                    ok = float(v) != 0.0
-                elif isinstance(v, str):
-                    ok = v.strip() not in ("", "0", "nan", "NaN")
-                elif isinstance(v, bool):
-                    ok = v
-                if ok:
-                    business_rows.append({"Sector": sector, "Activity": act, "Activity_norm": act_norm, "Business": str(bc)})
+        # Every other column is an activity column
+        activity_cols = [c for c in df.columns if c not in [best_col, "_pressure_norm"]]
+        for act_col in activity_cols:
+            act_name = str(act_col).strip()
+            # coerce numbers; leave NaN if empty
+            vals = pd.to_numeric(df[act_col], errors="coerce")
+            rec = {"Sector": sector, "Activity": act_name, "Activity_norm": _norm(act_name)}
+            for p, v in zip(PRESSURE_COLS, vals.values.tolist()):
+                rec[p] = v
+            rows.append(rec)
 
-    mdf = _pd.DataFrame(matrix_rows)
-    bdf = _pd.DataFrame(business_rows).drop_duplicates() if business_rows else _pd.DataFrame(
-        columns=["Sector","Activity","Activity_norm","Business"]
-    )
-    return mdf, bdf
+    matrix_df = pd.DataFrame(rows)
+    if not matrix_df.empty:
+        # Clip to [0,1] if your Excel uses that scale; drop if wildly outside
+        for p in PRESSURE_COLS:
+            matrix_df[p] = pd.to_numeric(matrix_df[p], errors="coerce")
+            matrix_df[p] = matrix_df[p].clip(lower=0, upper=1)
+
+    # No per-activity "business" flags in wide layout; return empty placeholder
+    business_df = pd.DataFrame(columns=["Sector","Activity","Activity_norm","Business"])
+    return matrix_df, business_df
+
 
 def filter_land_use_to_activities(landuse_df: _pd.DataFrame, matrix_df: _pd.DataFrame) -> _pd.DataFrame:
     """Match land-use TagValue rows to Excel activities (robust: normalize + synonyms + optional fuzzy)."""
