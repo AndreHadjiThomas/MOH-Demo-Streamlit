@@ -8,10 +8,6 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon
 import h3
-from pathlib import Path as _Path
-import pandas as _pd
-import numpy as _np
-
 
 from data_config import (
     ROOT, GIT_BASE_URL, RES, CENTER, H3_LIST_FILE,
@@ -86,7 +82,6 @@ def load_wind_kml() -> Tuple[gpd.GeoDataFrame, Optional[Path]]:
             gdf = gdf.set_crs("EPSG:4326")
         elif gdf.crs.to_epsg() != 4326:
             gdf = gdf.to_crs(4326)
-        # Keep only polygons
         gdf = gdf[gdf.geometry.notna()]
         gdf = gdf.explode(index_parts=False, ignore_index=True)
         gdf = gdf[gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])]
@@ -149,27 +144,28 @@ def load_invasive_sensitive(h3_index: str, position: str):
             sens = df[df[cand].astype(str).str.upper().isin(["VU", "EN", "CR"])][[name_col, cand]]
             sens.columns = ["Species", "Status"]
             break
-    # return both, de-duplicated
     inv = inv.drop_duplicates()
     sens = sens.drop_duplicates()
     return inv, sens, f
 
-# ---------- Activities (show TagValue) ----------
+# ---------- Activities (show TagValue + AreaEnd_m2 only) ----------
 def load_land_use(h3_index: str, position: str):
     f = LAND_USE_FILE(h3_index, position)
     if not f.exists():
-        return pd.DataFrame(columns=["Activity", "Impact", "TagValue"]), None
+        return pd.DataFrame(columns=["TagValue", "AreaEnd_m2"]), None
     df = pd.read_csv(f)
     low = {c.lower(): c for c in df.columns}
-    # prefer TagValue column as requested
-    tagv = low.get("tagvalue")
-    activity = low.get("activity") or low.get("land_use") or list(df.columns)[0]
-    impact = low.get("impact") or low.get("intensity")
+    tagv = low.get("tagvalue") or low.get("tag_value") or low.get("type")
+    area = low.get("areaend_m2") or low.get("area_m2") or low.get("area")
     out = pd.DataFrame()
-    out["Activity"] = df[activity]
-    out["Impact"] = df[impact] if impact else ""
     if tagv:
         out["TagValue"] = df[tagv]
+    else:
+        out["TagValue"] = df.iloc[:, 0]
+    if area:
+        out["AreaEnd_m2"] = pd.to_numeric(df[area], errors="coerce")
+    else:
+        out["AreaEnd_m2"] = np.nan
     return out, f
 
 # ---------- Environmental risks (prefer H3-named, fallback to position-named) ----------
@@ -182,57 +178,65 @@ def load_environmental_risks(h3_index: str, position: str) -> Tuple[pd.DataFrame
         return pd.read_csv(fpos), fpos
     return pd.DataFrame(), None
 
-
-# tolerate older data_config versions that don't have ENV_TIMESERIES_FILE
-try:
-    from data_config import ENV_TIMESERIES_FILE as _ENV_TS_FILE
-except Exception:
-    _ENV_TS_FILE = lambda pos: _Path(f"environmental_data_{pos}_.csv")
+def load_environmental_risks_all(cells_df: pd.DataFrame) -> pd.DataFrame:
+    """Concatenate environmental_risks for all grids; keep Name + Distance if present."""
+    rows = []
+    for _, r in cells_df.iterrows():
+        h3i, pos = r["h3_index"], r["position"]
+        df, _ = load_environmental_risks(h3i, pos)
+        if df is None or df.empty:
+            continue
+        df = df.copy()
+        df["position"] = pos
+        # harmonize columns
+        name_col = None
+        for c in ["Name", "name", "Ecosystem", "ecosystem", "Class", "class", "TagValue", "tagvalue"]:
+            if c in df.columns:
+                name_col = c; break
+        dist_col = None
+        for c in ["Distance", "distance", "distance_m", "Distance_m", "NearestDistance_m", "dist_m"]:
+            if c in df.columns:
+                dist_col = c; break
+        keep = {}
+        if name_col: keep["Name"] = df[name_col].astype(str)
+        else: keep["Name"] = df.iloc[:, 0].astype(str)
+        if dist_col: keep["Distance (m)"] = pd.to_numeric(df[dist_col], errors="coerce")
+        else: keep["Distance (m)"] = np.nan
+        keep["Grid"] = pos
+        rows.append(pd.DataFrame(keep))
+    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["Grid","Name","Distance (m)"])
 
 # ---------- Environmental/climate time-series ----------
-def load_env_timeseries(position: str):
-    """
-    Load environmental/climate time-series for a POSITION from:
-      environmental_data_<POSITION>_.csv
-    Returns (DataFrame, Path or None). Ensures an integer 'year' column.
-    """
-    f = _ENV_TS_FILE(position)
+def load_env_timeseries(position: str) -> Tuple[pd.DataFrame, Optional[Path]]:
+    f = ENV_TIMESERIES_FILE(position)
     if not f.exists():
-        return _pd.DataFrame(), None
-    df = _pd.read_csv(f)
+        return pd.DataFrame(), None
+    df = pd.read_csv(f)
     ycol = "year" if "year" in df.columns else df.columns[0]
-    df = df.rename(columns={ycol: "year"}).copy()
-    df["year"] = _pd.to_numeric(df["year"], errors="coerce")
+    df.rename(columns={ycol: "year"}, inplace=True)
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
     df = df.dropna(subset=["year"]).copy()
     df["year"] = df["year"].astype(int)
     return df, f
 
-# ---------- Climate intensity metric (z-score blend of drivers present) ----------
-def compute_climate_intensity(df: _pd.DataFrame, year_min: int, year_max: int) -> float:
-    """
-    Simple climate intensity metric:
-      - Filter rows to [year_min, year_max]
-      - For every numeric driver column (except 'year'), compute its z-score series
-      - Return the average of mean z-scores across all drivers
-    """
-    if df is None or df.empty:
+def compute_climate_intensity(df: pd.DataFrame, year_min: int, year_max: int) -> float:
+    if df.empty:
         return float("nan")
-    sub = df[(df["year"] >= year_min) & (df["year"] <= year_max)].copy()
+    mask = (df["year"] >= year_min) & (df["year"] <= year_max)
+    sub = df.loc[mask].copy()
     if sub.empty:
         return float("nan")
-    numeric_cols = [c for c in sub.columns if c != "year" and _pd.api.types.is_numeric_dtype(sub[c])]
-    if not numeric_cols:
+    candidates = [c for c in sub.columns if c.lower() != "year" and pd.api.types.is_numeric_dtype(sub[c])]
+    if not candidates:
         return float("nan")
-    means = []
-    for c in numeric_cols:
-        s = _pd.to_numeric(sub[c], errors="coerce").dropna()
-        if s.empty:
+    vals = []
+    for c in candidates:
+        series = pd.to_numeric(sub[c], errors="coerce").dropna()
+        if series.empty:
             continue
-        z = (s - s.mean()) / (s.std(ddof=0) + 1e-9)
-        means.append(z.mean())
-    if not means:
-        return float("nan")
-    return float(_np.mean(means))
+        z = (series - series.mean()) / (series.std(ddof=0) + 1e-9)
+        vals.append(z.mean())
+    return float(np.mean(vals)) if vals else float("nan")
 
 # ---------- Aqueduct ----------
 def parse_label_to_score(label: str) -> float:
@@ -307,15 +311,27 @@ def load_eco_for_hex(h3_index: str, position: str):
             res[key] = (None, None)
     return res
 
+def reduce_eco_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Return only Ecosystem type + Distance columns, with clean names."""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["Ecosystem", "Distance (m)"])
+    name_col = None
+    for c in ["Class", "class", "TagValue", "tagvalue", "Ecosystem", "ecosystem", "Type", "type"]:
+        if c in df.columns:
+            name_col = c; break
+    dist_col = None
+    for c in ["Distance", "distance", "distance_m", "Distance_m", "NearestDistance_m", "dist_m"]:
+        if c in df.columns:
+            dist_col = c; break
+    out = pd.DataFrame()
+    out["Ecosystem"] = df[name_col].astype(str) if name_col else df.iloc[:, 0].astype(str)
+    out["Distance (m)"] = pd.to_numeric(df[dist_col], errors="coerce") if dist_col else np.nan
+    return out
+
 # ---------- FFI across ALL hexes ----------
 FFI_PAT = re.compile(r"^avg_ffi_(?P<h3>[0-9a-f]+)_(?P<pos>[A-Za-z0-9]+)\.csv$", re.I)
 
 def load_all_avg_ffi() -> Tuple[pd.DataFrame, List[Path]]:
-    """
-    Reads all files like: avg_ffi_<h3>_<pos>.csv
-    Detects (year, value) columns robustly and returns long DF:
-    [h3_index, position, year, value], and the list of file Paths.
-    """
     rows, paths = [], []
     for f in ROOT.glob("avg_ffi_*_*.csv"):
         m = FFI_PAT.match(f.name)
@@ -326,25 +342,21 @@ def load_all_avg_ffi() -> Tuple[pd.DataFrame, List[Path]]:
             df = pd.read_csv(f)
         except Exception:
             continue
-        # pick year/value columns
         ycol = "year" if "year" in df.columns else None
         if ycol is None:
             for c in df.columns:
                 if pd.api.types.is_numeric_dtype(df[c]) and df[c].between(1900, 2100, inclusive="left").sum() >= max(3, len(df)//4):
-                    ycol = c
-                    break
+                    ycol = c; break
         if ycol is None:
             ycol = df.columns[0]
         vcol = None
         for c in ["avg_ffi", "fragmentation", "ffi", "value", "val"]:
             if c in df.columns:
-                vcol = c
-                break
+                vcol = c; break
         if vcol is None:
             for c in df.columns:
                 if c != ycol and pd.api.types.is_numeric_dtype(df[c]):
-                    vcol = c
-                    break
+                    vcol = c; break
         if vcol is None:
             continue
         sub = df[[ycol, vcol]].copy()
