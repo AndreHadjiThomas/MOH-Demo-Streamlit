@@ -40,9 +40,8 @@ H3_LIST_FILE = ROOT / "h3_res7_center_plus_neighbors_minimal.csv"
 # Windfarm KML overlay
 WIND_KML = ROOT / "Δυτικο Λυρκειο Πολυγωνο ΡΑΑΕΥ.kml"
 
-# Activity→pressure Excel (one sheet per sector)
+# Activity→pressure Excel (one sheet per sector; wide format)
 ACTIVITY_PRESSURE_FILE = ROOT / "Biomet répertoire.xlsx"
 
 # Year slider
 YEAR_MIN, YEAR_MAX = 2005, 2025
-
