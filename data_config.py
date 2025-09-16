@@ -1,7 +1,7 @@
 from pathlib import Path
 
 # Root directory (repo main)
-ROOT = Path(".")
+ROOT = Path("data")
 
 # Optional: base URL to your git repo for clickable file links (e.g. GitHub “blob” URL)
 GIT_BASE_URL = ""  # e.g., "https://github.com/<user>/<repo>/blob/main"
