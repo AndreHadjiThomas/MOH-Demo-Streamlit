@@ -398,7 +398,7 @@ PRESSURE_COLS = [
 SYNONYMS = {
     # Agriculture / horticulture etc. (unchanged examples)
     "landuse=farmland": "agriculture",
-    "farmland": "agriculture",
+    "farmland": "Crop Farming",
     "landuse=farm": "agriculture",
     "farm": "agriculture",
     "farmyard": "agriculture facilities",
