@@ -8,6 +8,10 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon
 import h3
+from pathlib import Path as _Path
+import pandas as _pd
+import numpy as _np
+
 
 from data_config import (
     ROOT, GIT_BASE_URL, RES, CENTER, H3_LIST_FILE,
@@ -178,48 +182,57 @@ def load_environmental_risks(h3_index: str, position: str) -> Tuple[pd.DataFrame
         return pd.read_csv(fpos), fpos
     return pd.DataFrame(), None
 
+
+# tolerate older data_config versions that don't have ENV_TIMESERIES_FILE
+try:
+    from data_config import ENV_TIMESERIES_FILE as _ENV_TS_FILE
+except Exception:
+    _ENV_TS_FILE = lambda pos: _Path(f"environmental_data_{pos}_.csv")
+
 # ---------- Environmental/climate time-series ----------
-def load_env_timeseries(position: str) -> Tuple[pd.DataFrame, Optional[Path]]:
-    f = ENV_TIMESERIES_FILE(position)
+def load_env_timeseries(position: str):
+    """
+    Load environmental/climate time-series for a POSITION from:
+      environmental_data_<POSITION>_.csv
+    Returns (DataFrame, Path or None). Ensures an integer 'year' column.
+    """
+    f = _ENV_TS_FILE(position)
     if not f.exists():
-        return pd.DataFrame(), None
-    df = pd.read_csv(f)
-    # Normalize a "year" column if present; otherwise try first col
+        return _pd.DataFrame(), None
+    df = _pd.read_csv(f)
     ycol = "year" if "year" in df.columns else df.columns[0]
-    df.rename(columns={ycol: "year"}, inplace=True)
-    # Return numeric year rows only
-    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df = df.rename(columns={ycol: "year"}).copy()
+    df["year"] = _pd.to_numeric(df["year"], errors="coerce")
     df = df.dropna(subset=["year"]).copy()
     df["year"] = df["year"].astype(int)
     return df, f
 
 # ---------- Climate intensity metric (z-score blend of drivers present) ----------
-def compute_climate_intensity(df: pd.DataFrame, year_min: int, year_max: int) -> float:
-    if df.empty:
+def compute_climate_intensity(df: _pd.DataFrame, year_min: int, year_max: int) -> float:
+    """
+    Simple climate intensity metric:
+      - Filter rows to [year_min, year_max]
+      - For every numeric driver column (except 'year'), compute its z-score series
+      - Return the average of mean z-scores across all drivers
+    """
+    if df is None or df.empty:
         return float("nan")
-    mask = (df["year"] >= year_min) & (df["year"] <= year_max)
-    sub = df.loc[mask].copy()
+    sub = df[(df["year"] >= year_min) & (df["year"] <= year_max)].copy()
     if sub.empty:
         return float("nan")
-    # candidate driver columns
-    candidates = [c for c in sub.columns if c.lower() not in ("year",)]
-    if not candidates:
+    numeric_cols = [c for c in sub.columns if c != "year" and _pd.api.types.is_numeric_dtype(sub[c])]
+    if not numeric_cols:
         return float("nan")
-    # z-score each driver and average mean z across drivers
-    vals = []
-    for c in candidates:
-        try:
-            series = pd.to_numeric(sub[c], errors="coerce")
-            series = series.dropna()
-            if series.empty:
-                continue
-            z = (series - series.mean()) / (series.std(ddof=0) + 1e-9)
-            vals.append(z.mean())
-        except Exception:
+    means = []
+    for c in numeric_cols:
+        s = _pd.to_numeric(sub[c], errors="coerce").dropna()
+        if s.empty:
             continue
-    if not vals:
+        z = (s - s.mean()) / (s.std(ddof=0) + 1e-9)
+        means.append(z.mean())
+    if not means:
         return float("nan")
-    return float(np.mean(vals))
+    return float(_np.mean(means))
 
 # ---------- Aqueduct ----------
 def parse_label_to_score(label: str) -> float:
